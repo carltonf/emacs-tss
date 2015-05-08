@@ -1146,6 +1146,23 @@
   (when (tss--delete-process nil t)
     (tss--show-message "Stopped '%s'." (buffer-name))))
 
+(defcustom tss-completion-engine 'auto-complete
+  "The TSS completion enabled by `tss-setup-current-buffer'."
+  :type 'symbol
+  :group 'tss)
+
+;;;###autoload
+(defsubst tss-setup-completion-engine ()
+  "Setup proper completion engine for tss buffers"
+  (pcase tss-completion-engine
+    (`auto-complete
+       (loop for source in (reverse ac-sources-tss)
+        do (add-to-list 'ac-sources source))
+       (auto-complete-mode t))
+    (t
+     ;; other types of completion, some of them can setup themselves.
+     )))
+
 ;;;###autoload
 (defun tss-setup-current-buffer ()
   "Do setup for using TSS in current buffer."
@@ -1168,10 +1185,8 @@
         (when (and (stringp tss-jump-to-definition-key)
                    (not (string= tss-jump-to-definition-key "")))
           (local-set-key (read-kbd-macro tss-jump-to-definition-key) 'tss-jump-to-definition))
-        ;; For auto-complete
-        (loop for source in (reverse ac-sources-tss)
-              do (add-to-list 'ac-sources source))
-        (auto-complete-mode t)
+        ;; For completions
+        (tss-setup-completion-engine)
         ;; For eldoc
         (set (make-local-variable 'eldoc-documentation-function) 'tss--echo-method-usage)
         (turn-on-eldoc-mode)
