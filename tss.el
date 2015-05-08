@@ -1092,6 +1092,14 @@ source manipulation."
                   (yaxception:get-text e)
                   (yaxception:get-stack-trace-string e)))))
 
+(defcustom tss-run-flymake-idle-interval 2
+  "Idle interval to run `flymake' in current buffer."
+  :type 'integer
+  :group 'tss)
+
+(defvar tss-run-flymake-idle-timer nil
+  "Idle timer for `tss-run-flymake'")
+
 ;;;###autoload
 (defun tss-run-flymake ()
   "Run check by flymake for current buffer."
@@ -1238,6 +1246,10 @@ source manipulation."
         do (add-hook hook 'tss-setup-current-buffer t))
   ;; Run flymake when save buffer.
   (add-hook 'after-save-hook 'tss-run-flymake t)
+  (unless tss-run-flymake-idle-timer
+    (setq tss-run-flymake-idle-timer
+          (run-with-idle-timer tss-run-flymake-idle-interval
+                               t #'tss-run-flymake)))
   ;; Delete tss process of the buffer when kill buffer.
   (add-hook 'kill-buffer-hook 'tss--delete-process t))
 
