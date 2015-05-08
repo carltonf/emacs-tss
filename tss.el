@@ -421,7 +421,7 @@
       ;; path property is set before any other process actions.
       (process-put proc 'source-path fpath)
       (set-process-filter proc 'tss--receive-server-response)
-      (process-query-on-exit-flag proc)
+      (set-process-query-on-exit-flag proc nil)
       (setq tss--server-response nil)
       (setq tss--incomplete-server-response "")
       (setq tss--json-response-start-char "")
