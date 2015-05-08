@@ -1156,9 +1156,17 @@
   "Setup proper completion engine for tss buffers"
   (pcase tss-completion-engine
     (`auto-complete
-       (loop for source in (reverse ac-sources-tss)
-        do (add-to-list 'ac-sources source))
-       (auto-complete-mode t))
+     (loop for mode in tss-enable-modes
+           do (add-to-list 'ac-modes mode))
+     ;; auto trigger key (buffer local)
+     (loop for stroke in tss-ac-trigger-command-keys
+              if (not (string= stroke ""))
+              do (local-set-key (read-kbd-macro stroke)
+                                'tss--insert-with-ac-trigger-command))
+     (loop for source in (reverse ac-sources-tss)
+           do (add-to-list 'ac-sources source))
+     (auto-complete-mode t)
+     (eldoc-add-command 'tss--insert-with-ac-trigger-command))
     (t
      ;; other types of completion, some of them can setup themselves.
      )))
@@ -1171,9 +1179,6 @@
     (yaxception:try
       (when (tss--active-p)
         ;; Key binding
-        (loop for stroke in tss-ac-trigger-command-keys
-              if (not (string= stroke ""))
-              do (local-set-key (read-kbd-macro stroke) 'tss--insert-with-ac-trigger-command))
         (loop for e in '((tss-popup-help-key . tss-popup-help)
                          (tss-jump-to-definition-key . tss-jump-to-definition)
                          (tss-implement-definition-key . tss-implement-definition))
@@ -1190,7 +1195,6 @@
         ;; For eldoc
         (set (make-local-variable 'eldoc-documentation-function) 'tss--echo-method-usage)
         (turn-on-eldoc-mode)
-        (eldoc-add-command 'tss--insert-with-ac-trigger-command)
         (when (commandp 'typescript-insert-and-indent)
           (eldoc-add-command 'typescript-insert-and-indent))
         ;; For flymake
@@ -1211,7 +1215,6 @@
   ;; Activate auto-complete and setup TSS automatically when open tss-enable-modes buffer.
   (loop for mode in tss-enable-modes
         for hook = (intern-soft (concat (symbol-name mode) "-hook"))
-        do (add-to-list 'ac-modes mode)
         if (and hook
                 (symbolp hook))
         do (add-hook hook 'tss-setup-current-buffer t))
