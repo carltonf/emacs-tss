@@ -387,30 +387,62 @@
        (process-status (process-name tss--proc))
        t))
 
-(defun tss--delete-process (&optional killp waitp)
-  (when (tss--exist-process)
-    (yaxception:$
-      (yaxception:try
-        (cond (killp
-               (kill-process tss--proc)
-               (when waitp (sleep-for 1)))
-              (t
-               (process-send-string tss--proc "quit\n")
-               (delete-process tss--proc)))
-        t)
-      (yaxception:catch 'error e
-        (tss--error "failed delete process : %s" (yaxception:get-text e))))))
+(defsubst tss--clean-process (proc killp waitp)
+  "Helper function to clean up tss process"
+  (cond (killp
+         (kill-process proc)
+         (when waitp (sleep-for 1)))
+        (t
+         (process-send-string proc "quit\n")
+         (delete-process proc))))
+
+;;; TODO a little cumbersome, need a master place to manage all these service
+;;; processes.
+(defun tss--delete-process (&optional killp waitp procnm fpath)
+  "Delete process `tss--proc', and if PROCNM is non-nil also
+delete that process. When FPATH is set, PROCNM is deleted only if
+the value of 'source-path property in PROCNM matches FPATH.
+
+PROCNM is needed for cases when `tss--proc' is reset like
+`revert-buffer' or disable/enable `typescript-mode'. FPATH is
+needed for safety (same buffer name case, shouldn't happen
+though)."
+  (yaxception:$
+    (yaxception:try
+      ;; clean process in `tss--proc'
+      (when (tss--exist-process)
+        (tss--clean-process tss--proc killp waitp))
+      ;; clean up any dangled processes
+      (when (and procnm
+                 (process-live-p (get-process procnm))
+                 (or (null fpath)
+                     (string-equal (process-get (get-process procnm)
+                                                'source-path)
+                                   fpath)))
+        (tss--clean-process (get-process procnm)
+                            killp waitp))
+      t)
+    (yaxception:catch 'error e
+      (tss--error "failed delete process : %s" (yaxception:get-text e)))))
+
+(defun tss-clean-all-service-processes ()
+  "Helper command to delete all service processes."
+  (interactive)
+  (loop for proc in (process-list)
+      when (s-starts-with? "typescript-service"
+                           (process-name proc))
+      do (delete-process proc)))
 
 (defun tss--start-process (&optional initializep)
   (when (not (executable-find "tss"))
     (yaxception:throw 'tss-command-not-found))
   (tss--trace "Start tss process for %s" (buffer-name))
-  (tss--delete-process t t)
   (let* ((fpath (expand-file-name (buffer-file-name)))
          (procnm (format "typescript-service-%s" (buffer-name)))
          (cmdstr (format "tss %s" (shell-quote-argument fpath)))
          (process-connection-type nil)
          (proc (when (file-exists-p fpath)
+                 (tss--delete-process t t procnm fpath)
                  (tss--trace "Do %s" cmdstr)
                  (cond (initializep (tss--show-message "Load '%s' ..." (buffer-name)))
                        (t           (tss--show-message "Reload '%s' ..." (buffer-name))))
