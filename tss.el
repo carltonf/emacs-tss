@@ -1106,7 +1106,8 @@ source manipulation."
   (interactive)
   (yaxception:$
     (yaxception:try
-      (when (and (tss--active-p)
+      (when (and (buffer-modified-p)
+                 (tss--active-p)
                  (tss--exist-process))
         (tss--debug "Start run flymake")
         (tss--sync-server)
@@ -1224,7 +1225,8 @@ source manipulation."
         (when (commandp 'typescript-insert-and-indent)
           (eldoc-add-command 'typescript-insert-and-indent))
         ;; For flymake
-        (setq flymake-err-line-patterns '(("\\`\\(.+?\\.ts\\) (\\([0-9]+\\),\\([0-9]+\\)): \\(.+\\)" 1 2 3 4)))
+        ;; the following is wrong, , use add-to-list
+        (add-to-list 'flymake-err-line-patterns '("\\`\\(.+?\\.ts\\) (\\([0-9]+\\),\\([0-9]+\\)): \\(.+\\)" 1 2 3 4))
         (flymake-mode t)
         ;; Start TypeScript Services
         (tss--get-process t)
