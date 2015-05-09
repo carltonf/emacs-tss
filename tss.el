@@ -1132,14 +1132,14 @@ source manipulation."
 (defvar tss-run-flymake-idle-timer nil
   "Idle timer for `tss-run-flymake'")
 
+;;; TODO migrate to modern framework: flycheck
 ;;;###autoload
 (defun tss-run-flymake ()
   "Run check by flymake for current buffer."
   (interactive)
   (yaxception:$
     (yaxception:try
-      (when (and (buffer-modified-p)
-                 (tss--active-p)
+      (when (and (tss--active-p)
                  (tss--exist-process))
         (tss--debug "Start run flymake")
         (tss--sync-server)
@@ -1257,8 +1257,6 @@ source manipulation."
         (when (commandp 'typescript-insert-and-indent)
           (eldoc-add-command 'typescript-insert-and-indent))
         ;; For flymake
-        ;; the following is wrong, , use add-to-list
-        (add-to-list 'flymake-err-line-patterns '("\\`\\(.+?\\.ts\\) (\\([0-9]+\\),\\([0-9]+\\)): \\(.+\\)" 1 2 3 4))
         (flymake-mode t)
         ;; Start TypeScript Services
         (tss--get-process t)
@@ -1279,6 +1277,7 @@ source manipulation."
                 (symbolp hook))
         do (add-hook hook 'tss-setup-current-buffer t))
   ;; Run flymake when save buffer.
+  (add-to-list 'flymake-err-line-patterns '("\\`\\(.+?\\.ts\\) (\\([0-9]+\\),\\([0-9]+\\)): \\(.+\\)" 1 2 3 4))
   (add-hook 'after-save-hook 'tss-run-flymake t)
   (unless tss-run-flymake-idle-timer
     (setq tss-run-flymake-idle-timer
