@@ -249,6 +249,77 @@
             (line-number-at-pos)
  			(+ (- (point) (line-beginning-position)) 1))))
 
+(defconst tss--service-supported-cmds
+  '(;; <cmd> <line> <pos> <file>
+    "quickInfo" "definition" "references" "completions" "completions-brief"
+    ;; <cmd> <file>/<item>
+    "navigationBarItems" "navigateToItems"
+    ;; <cmd> (nochech)? <linecount> <file> [linecount lines of source text]
+    "update"
+    ;; <cmd>
+    "reload" "files" "showErrors" "quit")
+  "A list of supported commands of ts service, see
+https://github.com/clausreinke/typescript-tools
+for the complete list and docs.")
+
+;;;###autoload
+(defun tss-send-command-display (cmd &optional cmdargs)
+  "Interactive command to send arbitrary command to typescript
+service and display raw feedback. Mainly used for
+debugging/development.
+
+If CMDARGS is set, it should be a full command argument list,
+which can be line number, current column (note that Emacs count
+column from 0, ts service starts from 1) or full file path and
+etc. Otherwise, generate these args according to `current-buffer'
+and `point'."
+  (interactive (list
+                (progn
+                  (unless (tss--active-p)
+                    (error "Only used in active TSS buffer."))
+                  (completing-read "TS Command: "
+                                   tss--service-supported-cmds
+                                   nil t))))
+  (let ((resp-display-bufnm "*TSS Response*")
+        cmdstr resp
+        (response-start-char "{")
+        (response-end-char "}"))
+    (pcase cmd
+      ((or "quickInfo" "definition" "references" "completions" "completions-brief")
+       (let ((posarg (tss--get-position-argument))
+             (file (buffer-file-name)))
+         (setq cmdstr (format "%s %s %s" cmd posarg file))))
+      ("navigationBarItems"
+       (let ((file (buffer-file-name)))
+         (setq cmdstr (format "%s %s" cmd file))))
+      ("navigateToItems"
+       (let ((item (symbol-at-point)))
+         (setq cmdstr (format "%s %s" cmd item))))
+      ((or "files" "showErrors")
+       (setq cmdstr (format "%s" cmd)))
+      ("reload"
+       (message "reload currently doesn't respond any meaningful response back."))
+      (_
+       (error "%s NOT supported yet ;P" cmd)))
+    ;; here we fiddle with the start/end char of response, this is needed by
+    ;; `tss--get-server-response' and `tss--receive-server-response'. Response
+    ;; delimiters can also be found on ts tools page.
+    ;; TODO is this cumbersome start/end char really needed? An adaptive
+    ;; receiver?
+    (pcase cmd
+      ((or "quickInfo" "definition" "completions" "completions-brief")
+       (setq response-start-char "{"
+             response-end-char "}"))
+      ((or "references" "navigationBarItems" "navigateToItems" "files" "showErrors")
+       (setq response-start-char "["
+             response-end-char "]")))
+    ;; send and display
+    (setq resp (tss--get-server-response
+                cmdstr :waitsec 2
+                :response-start-char response-start-char
+                :response-end-char response-end-char))
+    (pp-display-expression resp resp-display-bufnm)))
+
 (defsubst tss--send-string (proc sendstr)
   (yaxception:$
     (yaxception:try
