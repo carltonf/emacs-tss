@@ -433,79 +433,96 @@ and `point'."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; For typescript-tools
 
-(defvar-local tss--proc nil)
-(defvar-local tss--server-response nil)
-(defvar-local tss--incomplete-server-response "")
-(defvar-local tss--json-response-start-char "")
-(defvar-local tss--json-response-end-char "")
+;; local variable for current TS prj setup {{
+(defvar-local tss--proc nil
+  "Current TSS process for this buffer, in case of TS project all
+project buffers share a single TS process.")
+(defvar-local tss--project nil
+  "Root path of the TS project current buffer belongs to. For
+a single TS file, it's the path of this file.")
+(defvar-local tss--project-buffer nil
+  "Buffer for TS project, in case no project is configured the
+file buffer is returned.")
+;; }}
 
-;;; TODO `tss--get-process' and `tss--start-process' should NOT set `tss--proc'
-(defun tss--get-process (&optional initializep)
-  "Get a TSS process for current buffer. If `tss--proc' is not
-set for current buffer, `tss--path-process-table' will be looked
-up to see whether the current buffer's file is within some
-existing TSS project and get that TSS process. As a last resort a
-new TSS process will start."
-  (let ((fpath (expand-file-name (buffer-file-name)))
-        proc)
-    (cond
-     ((and (processp tss--proc)
-           (eq (process-status (process-name tss--proc)) 'run))
-      tss--proc)
-     ((-some? (lambda (record-path)
-                (when (string-prefix-p record-path fpath)
-                  (setq proc (gethash record-path tss--path-process-table))
-                  ;; test process status?
-                  t))
-              (hash-table-keys tss--path-process-table))
-      (setq tss--proc proc))
-     (t (tss--start-process initializep)))))
+;; local variables for parsing/storing tss service {{
+(defvar-local tss--server-response nil
+  "Main variable for storing TSS response. Though this is
+buffer-local var, for project files only the ones set in project
+buffer are meaningful.")
+(defvar-local tss--incomplete-server-response ""
+  "Intermediate response content. see `tss--server-response' for
+more info.")
+;; TODO the following two are bad naming, which I believe is a problem with TSS.
+(defvar-local tss--json-response-start-char ""
+  "Start character of response string, paired with `tss--json-response-end-char'.
+
+WARNING: TSS response is NOT JSON actually, it's more like
+JavaScript data get inspected. For now, there are string, array
+and object. So here we need to set the start&end char to know
+what responses we are receiving.")
+(defvar-local tss--json-response-end-char ""
+  "End character of response string.
+
+See `tss--json-response-start-char' for more info.")
+;; }}
+
+;;; TODO depreciated?
+;; (defun tss--get-process-create (&optional initializep)
+;;   "Get a TSS process for current buffer, create one if no process
+;; can be found.
+
+;; If `tss--proc' is not set for current buffer,
+;; `tss--project-runtime-table' will be looked up to see whether the
+;; current buffer's file is within some existing TSS project and get
+;; that TSS process. As a last resort a new TSS process will start."
+;;   (let ((fpath (expand-file-name (buffer-file-name)))
+;;         proc)
+;;     (cond
+;;      ((and (processp tss--proc)
+;;            (eq (process-status (process-name tss--proc)) 'run))
+;;       tss--proc)
+;;      ((-some? (lambda (record-path)
+;;                 (when (string-prefix-p record-path fpath)
+;;                   (setq proc (buffer-local-value
+;;                               'tss--proc
+;;                               (gethash record-path tss--project-runtime-table)))
+;;                   ;; test process status?
+;;                   t))
+;;               (hash-table-keys tss--project-runtime-table))
+;;       proc)
+;;      (t (tss--start-process initializep)))))
 
 (defun tss--exist-process ()
   (and (processp tss--proc)
        (process-status (process-name tss--proc))
        t))
 
-(defsubst tss--clean-process (proc killp waitp)
-  "Helper function to clean up tss process. This includes
-`tss--path-process-table' as well.
-
-NOTE: for now there is no clean way to remove a project TS
-service."
-  (let ((prjpath (process-get proc 'prjpath)))
-    (unless (file-directory-p prjpath)
-      (remhash prjpath tss--path-process-table)))
-  (cond (killp
-         (kill-process proc)
-         (when waitp (sleep-for 1)))
-        (t
-         (process-send-string proc "quit\n")
-         (delete-process proc))))
-
-(defvar tss--path-process-table (make-hash-table :test #'equal)
-  "A table mapping source path or project root to TSS process.
-When a TS buffer is visited, `tss--get-process' will lookup this
+(defvar tss--project-runtime-table (make-hash-table :test #'equal)
+  "A table mapping source path or project root to TS project runtime buffer.
+Here buffer is used as an object, whose local variables hold all
+runtime configurations for the project. When a TS buffer is first
+visited, `tss--setup-project-for-current-buffer' will lookup this
 table to decide whether to start a new TSS.
 
 NOTE the key should be canonized path.")
 
-;;; TODO a little cumbersome, need a master place to manage all these service
-;;; processes.
-(defun tss--delete-process (&optional killp waitp prjpath fpath)
-  "Delete process `tss--proc', if PRJPATH or FPATH are set, they
-will be looked up in `tss--path-process-table', any found
-processes will also be deleted."
+(defun tss--delete-process (&optional killp waitp prjpath)
+  "Delete process `tss--proc'. If PRJPATH is non-nil, remove it
+from `tss--project-runtime-table'."
   (yaxception:$
     (yaxception:try
       ;; clean process in `tss--proc'
       (when (tss--exist-process)
-        (tss--clean-process tss--proc killp waitp))
-      ;; clean up any dangled processes
-      (loop for path in (list prjpath fpath)
-            do (let ((proc (and path
-                                (gethash path tss--path-process-table))))
-                 (when proc
-                   (tss--clean-process proc killp waitp))))
+        (cond (killp
+               (kill-process tss--proc)
+               (when waitp (sleep-for 1)))
+              (t
+               (process-send-string proc "quit\n")
+               (delete-process tss--proc)))
+        (when prjpath
+          (remhash prjpath tss--project-runtime-table))
+        (setq tss--proc nil))
       t)
     (yaxception:catch 'error e
       (tss--error "failed delete process : %s" (yaxception:get-text e)))))
@@ -518,69 +535,68 @@ processes will also be deleted."
                            (process-name proc))
       do (delete-process proc))
   ;; TODO extra checking?
-  (clrhash tss--path-process-table))
+  (clrhash tss--project-runtime-table))
 
-(defun tss--start-process (&optional initializep)
-  "Start a new process for current buffer. The buffer-file will
-be looked up to see whether it belongs to a project in
-`tss--root-sources-project-configs-table'. If it is, instead of
-loading this file in TSS, use sources configured in that table to
-start a new TSS process.
+;; TODO support TS buffer without files
+(defun* tss--start-process (&key projectp initializep)
+  "Start a new process for current buffer or project, cleaning old processes beforehand.
 
-NOTE: for now INITIALIZEP only has message difference."
+If PROJECTP is non-nil, look `tss--project' up in
+`tss--root-sources-project-configs-table'. If a project
+configuration exists, instead of loading this file in TSS, use
+sources configured to start a new TSS process.
+
+NOTE: INITIALIZEP only has message difference."
   (when (not (executable-find "tss"))
     (yaxception:throw 'tss-command-not-found))
   (tss--trace "Start tss process for %s" (buffer-name))
-  (let* ((fpath (expand-file-name (buffer-file-name)))
-         ;; check whether this fpath is the root
-         (prjpath (or (loop for root in (hash-table-keys tss--root-sources-project-configs-table)
-                            when (string-prefix-p root fpath)
-                            return root)
-                      ;; one-file virtual project ;P
-                      fpath))
-         (srcpaths (or (loop for path in (gethash prjpath tss--root-sources-project-configs-table)
-                             ;; make sure the source paths are absolute
-                             collect (expand-file-name path prjpath))
-                       (list fpath)))
-         (procnm (format "typescript-service-%s" (file-name-nondirectory prjpath)))
-         (cmdstr (format "tss %s"
-                         (s-join " " (mapcar
-                                      (lambda (path)
-                                        (shell-quote-argument path))
-                                      srcpaths))))
-         (process-connection-type nil)
-         (proc (when (file-exists-p prjpath)
-                 (tss--delete-process t t prjpath fpath)
-                 (tss--trace "Do %s" cmdstr)
-                 (cond (initializep (tss--show-message "Load '%s' ..." (buffer-name)))
-                       (t           (tss--show-message "Reload '%s' ..." (buffer-name))))
-                 ;; for project, set CWD to project root.
-                 (let ((default-directory (if (file-directory-p prjpath)
-                                              prjpath
-                                            default-directory)))
-                   (start-process-shell-command procnm nil cmdstr))))
-         (waiti 0))
-    (when proc
-      (process-put proc 'prjpath prjpath)
-      (set-process-filter proc 'tss--receive-server-response)
-      (set-process-query-on-exit-flag proc nil)
-      (setq tss--server-response nil)
-      (setq tss--incomplete-server-response "")
-      (setq tss--json-response-start-char "")
-      (setq tss--json-response-end-char "")
-      (while (and (< waiti 50)
-                  (not tss--server-response))
-        (accept-process-output proc 0.2 nil t)
-        (sleep-for 0.2)
-        (incf waiti))
-      (tss--info "Finished start tss process.")
-      (setq tss--proc proc)
-      ;; record this process
-      (puthash prjpath proc tss--path-process-table)
-      (when (eq tss--server-response 'succeed)
-        (cond (initializep (tss--show-message "Loaded '%s'." (buffer-name)))
-              (t           (tss--show-message "Reloaded '%s'." (buffer-name))))
-        t))))
+  (with-current-buffer tss--project-buffer
+    (let* ( ;; single file is considered as one-file virtual project
+           (prjpath (if projectp
+                        tss--project
+                      (buffer-file-name)))
+           (srcpaths (or (loop for path in (gethash prjpath tss--root-sources-project-configs-table)
+                               ;; make sure the source paths are absolute
+                               collect (expand-file-name path prjpath))
+                         (list prjpath)))
+           (procnm (format "typescript-service-%s" (file-name-nondirectory prjpath)))
+           (cmdstr (format "tss %s"
+                           (s-join " " (mapcar
+                                        (lambda (path)
+                                          (shell-quote-argument path))
+                                        srcpaths))))
+           (process-connection-type nil)
+           (proc (when (file-exists-p prjpath)
+                   (tss--delete-process t t (when projectp prjpath))
+                   (tss--trace "Do %s" cmdstr)
+                   (cond (initializep (tss--show-message "Load '%s' ..." (buffer-name)))
+                         (t           (tss--show-message "Reload '%s' ..." (buffer-name))))
+                   ;; note though the process buffer is set, a filter function
+                   ;; `tss--receive-server-response' is used for input handling,
+                   ;; see below.
+                   (start-process-shell-command procnm tss--project-buffer cmdstr)))
+           (waiti 0))
+      (when proc
+        (set-process-filter proc 'tss--receive-server-response)
+        (set-process-query-on-exit-flag proc nil)
+        (setq tss--server-response nil)
+        (setq tss--incomplete-server-response "")
+        (setq tss--json-response-start-char "")
+        (setq tss--json-response-end-char "")
+        (while (and (< waiti 50)
+                    (not tss--server-response))
+          (accept-process-output proc 0.2 nil t)
+          (sleep-for 0.2)
+          (incf waiti))
+        (tss--info "Finished start tss process.")
+        (when projectp
+          ;; record this process for project
+          (puthash prjpath tss--project tss--project-runtime-table))
+        (when (eq tss--server-response 'succeed)
+          (cond (initializep (tss--show-message "Loaded '%s'." (buffer-name)))
+                (t           (tss--show-message "Reloaded '%s'." (buffer-name)))))
+        ;; return proc
+        proc))))
 
 (defun tss--balance-json-brace-p (str startbrace endbrace)
   (if (or (string= startbrace "")
@@ -606,39 +622,29 @@ NOTE: for now INITIALIZEP only has message difference."
 
 (defun tss--receive-server-response (proc res)
   (tss--trace "Received server response.\n%s" res)
-  (yaxception:$
-    (yaxception:try
-      (loop with endre = (rx-to-string `(and bol "\"" (or "loaded" "updated" "added")
-                                             (+ space)))
-            for line in (split-string (or res "") "[\r\n]+")
-            if (string= line "null")
-            return (progn (tss--debug "Got null response")
-                          (setq tss--server-response 'null))
-            if (and (not (string= line ""))
-                    (or (not (string= tss--incomplete-server-response ""))
-                        (string= (substring line 0 1) tss--json-response-start-char)))
-            return (progn (tss--debug "Got json response : %s" line)
-                          (setq tss--incomplete-server-response (concat tss--incomplete-server-response line))
-                          (when (tss--balance-json-brace-p tss--incomplete-server-response
-                                                           tss--json-response-start-char
-                                                           tss--json-response-end-char)
-                            (tss--trace "Finished getting json response")
-                            (setq tss--server-response (json-read-from-string tss--incomplete-server-response))
-                            (setq tss--incomplete-server-response "")))
-            if (string-match endre line)
-            return (progn (tss--debug "Got other response : %s" line)
-                          (setq tss--server-response 'succeed))
-            if (string-match "\\`\"TSS +\\(.+\\)\"\\'" line)
-            do (tss--handle-err-response (match-string-no-properties 1 line))))
-    (yaxception:catch 'json-error e
-      (tss--warn "failed parse response : %s" (yaxception:get-text e))
-      (setq tss--server-response 'failed))
-    (yaxception:catch 'error e
-      (tss--error "failed receive server response : %s\n%s"
-                  (yaxception:get-text e)
-                  (yaxception:get-stack-trace-string e))
-      (setq tss--server-response 'failed)
-      (tss--show-message "Failed receive TSS response : %s" (yaxception:get-text e)))))
+  (with-current-buffer (process-buffer proc)
+    (loop with endre = (rx-to-string `(and bol "\"" (or "loaded" "updated" "added")
+                                           (+ space)))
+          for line in (split-string (or res "") "[\r\n]+")
+          if (string= line "null")
+          return (progn (tss--debug "Got null response")
+                        (setq tss--server-response 'null))
+          if (and (not (string= line ""))
+                  (or (not (string= tss--incomplete-server-response ""))
+                      (string= (substring line 0 1) tss--json-response-start-char)))
+          return (progn (tss--debug "Got json response : %s" line)
+                        (setq tss--incomplete-server-response (concat tss--incomplete-server-response line))
+                        (when (tss--balance-json-brace-p tss--incomplete-server-response
+                                                         tss--json-response-start-char
+                                                         tss--json-response-end-char)
+                          (tss--trace "Finished getting json response")
+                          (setq tss--server-response (json-read-from-string tss--incomplete-server-response))
+                          (setq tss--incomplete-server-response "")))
+          if (string-match endre line)
+          return (progn (tss--debug "Got other response : %s" line)
+                        (setq tss--server-response 'succeed))
+          if (string-match "\\`\"TSS +\\(.+\\)\"\\'" line)
+          do (tss--handle-err-response (match-string-no-properties 1 line)))))
 
 (defun tss--handle-err-response (res)
   (tss--trace "Handle error response : %s" res)
@@ -653,25 +659,26 @@ NOTE: for now INITIALIZEP only has message difference."
 (defun* tss--get-server-response (cmdstr &key waitsec response-start-char response-end-char)
   (when (tss--active-p)
     (tss--debug "Start get server response. cmdstr[%s] waitsec[%s]" cmdstr waitsec)
-    (let ((proc (tss--get-process))
+    (let ((proc tss--proc)
           (waiti 0)
           (maxwaiti (* (or waitsec 3) 5)))
-      (setq tss--server-response nil)
-      (setq tss--incomplete-server-response "")
-      (setq tss--json-response-start-char (or response-start-char "{"))
-      (setq tss--json-response-end-char (or response-end-char "}"))
-      (when (tss--send-string proc cmdstr)
-        (tss--trace "Start wait response from server.")
-        (while (and (< waiti maxwaiti)
-                    (not tss--server-response))
-          (accept-process-output proc 0.2 nil t)
-          (incf waiti))
-        (cond ((not (< waiti maxwaiti))
-               (tss--warn "Timeout get response of %s" cmdstr)
-               nil)
-              (t
-               (tss--trace "Got response from server.")
-               tss--server-response))))))
+      (with-current-buffer (process-buffer proc)
+        (setq tss--server-response nil)
+        (setq tss--incomplete-server-response "")
+        (setq tss--json-response-start-char (or response-start-char "{"))
+        (setq tss--json-response-end-char (or response-end-char "}"))
+        (when (tss--send-string proc cmdstr)
+          (tss--trace "Start wait response from server.")
+          (while (and (< waiti maxwaiti)
+                      (not tss--server-response))
+            (accept-process-output proc 0.2 nil t)
+            (incf waiti))
+          (cond ((not (< waiti maxwaiti))
+                 (tss--warn "Timeout get response of %s" cmdstr)
+                 nil)
+                (t
+                 (tss--trace "Got response from server.")
+                 tss--server-response)))))))
 
 (defun* tss--sync-server (&key waitsec buff path
                                source linecount)
@@ -690,7 +697,10 @@ source manipulation."
   (when (tss--active-p)
     (save-restriction
       (widen)
-      (let ((proc (tss--get-process))
+      (let ((proc tss--proc)
+            (content (or source
+                         (with-current-buffer (or buff (current-buffer))
+                           (buffer-string))))
             (waiti 0)
             (maxwaiti (* (or waitsec 3) 5))
             (cmdstr (format "update %d %s"
@@ -699,25 +709,24 @@ source manipulation."
                                   (count-lines (point-min) (point-max))))
                             (expand-file-name (or path (buffer-file-name))))))
         (tss--debug "Start sync server : %s" cmdstr)
-        (when (tss--send-string proc cmdstr)
-          (setq tss--server-response nil)
-          (setq tss--incomplete-server-response "")
-          (setq tss--json-response-start-char "")
-          (setq tss--json-response-end-char "")
-          (tss--send-string proc (or source
-                                     (with-current-buffer (or buff (current-buffer))
-                                       (buffer-string))))
-          (tss--trace "Start wait sync server.")
-          (while (and (< waiti maxwaiti)
-                      (not tss--server-response))
-            (accept-process-output proc 0.2 nil t)
-            (incf waiti))
-          (cond ((not (< waiti maxwaiti))
-                 (tss--warn "Timeout sync server.")
-                 nil)
-                (t
-                 (tss--trace "Finished sync server.")
-                 (eq tss--server-response 'succeed))))))))
+        (with-current-buffer (process-buffer proc)
+          (when (tss--send-string proc cmdstr)
+            (setq tss--server-response nil)
+            (setq tss--incomplete-server-response "")
+            (setq tss--json-response-start-char "")
+            (setq tss--json-response-end-char "")
+            (tss--send-string proc content)
+            (tss--trace "Start wait sync server.")
+            (while (and (< waiti maxwaiti)
+                        (not tss--server-response))
+              (accept-process-output proc 0.2 nil t)
+              (incf waiti))
+            (cond ((not (< waiti maxwaiti))
+                   (tss--warn "Timeout sync server.")
+                   nil)
+                  (t
+                   (tss--trace "Finished sync server.")
+                   (eq tss--server-response 'succeed)))))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1274,16 +1283,18 @@ Always perform this checking over selected window buffer"
                   (yaxception:get-text e)
                   (yaxception:get-stack-trace-string e)))))
 
+;;; TODO the following doesn't work as its name suggested
 ;;;###autoload
 (defun tss-reload-current-project ()
   "Reload project data for current buffer."
   (interactive)
+  (error "Reloading project is NOT supported.")
   (yaxception:$
     (yaxception:try
       (when (and (tss--active-p)
                  (tss--exist-process))
         (tss--debug "Start reload current project of %s" (buffer-name))
-        (tss--send-string (tss--get-process) "reload")
+        (tss--send-string tss--proc "reload")
         (tss--show-message "Finished request reload.")))
     (yaxception:catch 'error e
       (tss--show-message "%s" (yaxception:get-text e))
@@ -1292,23 +1303,33 @@ Always perform this checking over selected window buffer"
                   (yaxception:get-stack-trace-string e)))))
 
 ;;;###autoload
-(defun tss-restart-current-buffer ()
+(defun tss-restart-current-buffer (&optional hardp)
   "Restart TSS for current buffer, possibly starting a new TS
-service. If there is a live TS service for the project
-containing this file, reuse that."
-  (interactive)
-  (setq tss--last-send-string-failed-p nil)
-  (setq tss--current-active-p t)
-  (setq tss--proc nil)
-  (tss--get-process))
+service.
 
-(defun tss-hard-restart-current-buffer ()
-  "Restart TSS for current buffer. This will ALWAYS start a new
-TS service."
-  (interactive)
-  (setq tss--last-send-string-failed-p nil)
-  (setq tss--current-active-p t)
-  (tss--start-process))
+If there is not TS project for current buffer, always start a new
+TS service.
+
+If a project containing this file is alive, reload all setup from
+project buffer. Only when HARDP is non-nil, start a new TS
+service as well. "
+  (interactive "P")
+  ;; dynamically get new project, in case this file has recently been
+  ;; included into a project.
+  (let ((fpath (buffer-file-name)))
+    (setq tss--project (tss--get-project fpath))
+    (if (s-equals? fpath tss--project)
+        ;; no project, always restart
+        (progn
+          (setq tss--last-send-string-failed-p nil)
+          (setq tss--current-active-p t)
+          (setq tss--project-buffer (current-buffer))
+          (setq tss--proc (tss--start-process :projectp nil
+                                              :initializep t)))
+      ;; hard restart
+      (when hardp
+        (remhash tss--project tss--project-runtime-table))
+      (tss--setup-project-for-current-buffer tss--project))))
 
 ;;;###autoload
 (defun tss-stop-current-buffer ()
@@ -1344,7 +1365,7 @@ TS service."
      )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;: TSS Project
+;;;: TS Project
 ;;;
 (defvar tss--root-sources-project-configs-table (make-hash-table :test #'equal)
   "A TypeScript project can either be defined by \"tsconfig.js\"
@@ -1359,6 +1380,45 @@ use `puthash' directly. Use `tss-project-setup' instead.
 TODO use .dir.el? to make setup persistent?
 TODO gulp config file may be parsed to get automatic root source configurations.
 TODO implement support for tsconfig.js.")
+
+(defun tss--get-project (fpath)
+  "Get the project path for FPATH. Project configurations is
+retrieved from `tss--root-sources-project-configs-table'. In case
+no project exists for FPATH, FPATH is returned."
+  (or (loop for root in (hash-table-keys tss--root-sources-project-configs-table)
+            when (string-prefix-p root fpath)
+            return root)
+      ;; one-file virtual project ;P
+      fpath))
+
+(defun tss--setup-project-for-current-buffer (prjroot)
+  "Setup project for current buffer.
+
+Under a project:
+1. look up `tss--project-runtime-table' to see whether this
+project has already been setup if yes return all related
+settings.
+2. If not, start such a project setup."
+  (let ((prjbuf (gethash prjroot tss--project-runtime-table)))
+    (if (buffer-live-p prjbuf)
+        (progn
+          (setq tss--project-buffer prjbuf)
+          (setq tss--proc (buffer-local-value 'tss--proc prjbuf)))
+      ;; create new setup, project buffer is a virtual buffer (ps: buffer is
+      ;; ELisp's object)
+      (setq tss--project-buffer
+            (get-buffer-create
+             ;; buffer name is only suggestive
+             (format " *TS: %s*" (file-name-nondirectory tss--project))))
+      (with-current-buffer tss--project-buffer
+        (setq default-directory prjroot)
+        (setq tss--project prjroot)
+        (setq tss--project-buffer (current-buffer))
+        (setq tss--proc (tss--start-process :projectp t
+                                            :initializep t)))
+      (puthash prjroot tss--project-buffer tss--project-runtime-table)
+      ;; recursive call to setup current buffer
+      (tss--setup-project-for-current-buffer prjroot))))
 
 (defun tss-project-setup (prjroot root-sources)
   "Set ROOT-SOURCES for PRJROOT in
@@ -1377,38 +1437,34 @@ absolute (TODO eliminate this limit)."
 (defun tss-setup-current-buffer ()
   "Do setup for using TSS in current buffer."
   (interactive)
-  (yaxception:$
-    (yaxception:try
-      (when (tss--active-p)
-        ;; Key binding
-        (loop for e in '((tss-popup-help-key . tss-popup-help)
-                         (tss-jump-to-definition-key . tss-jump-to-definition)
-                         (tss-implement-definition-key . tss-implement-definition))
-              for key = (symbol-value (car e))
-              for command = (cdr e)
-              if (and (stringp key)
-                      (not (string= key "")))
-              do (local-set-key (read-kbd-macro key) command))
-        (when (and (stringp tss-jump-to-definition-key)
-                   (not (string= tss-jump-to-definition-key "")))
-          (local-set-key (read-kbd-macro tss-jump-to-definition-key) 'tss-jump-to-definition))
-        ;; For completions
-        (tss-setup-completion-engine)
-        ;; For eldoc
-        (set (make-local-variable 'eldoc-documentation-function) 'tss--echo-method-usage)
-        (turn-on-eldoc-mode)
-        (when (commandp 'typescript-insert-and-indent)
-          (eldoc-add-command 'typescript-insert-and-indent))
-        ;; For flymake
-        (flymake-mode t)
-        ;; Start TypeScript Services
-        (tss--get-process t)
-        (tss--info "finished setup for %s" (current-buffer))))
-    (yaxception:catch 'error e
-      (tss--show-message "Failed setup : %s" (yaxception:get-text e))
-      (tss--error "failed setup : %s\n%s"
-                  (yaxception:get-text e)
-                  (yaxception:get-stack-trace-string e)))))
+  (let ((fpath (buffer-file-name)))
+    ;; no TSS for buffer with no file associated
+    (when (and fpath
+               (tss--active-p))
+      ;; Key binding
+      (loop for e in '((tss-popup-help-key . tss-popup-help)
+                       (tss-jump-to-definition-key . tss-jump-to-definition)
+                       (tss-implement-definition-key . tss-implement-definition))
+            for key = (symbol-value (car e))
+            for command = (cdr e)
+            if (and (stringp key)
+                    (not (string= key "")))
+            do (local-set-key (read-kbd-macro key) command))
+      (when (and (stringp tss-jump-to-definition-key)
+                 (not (string= tss-jump-to-definition-key "")))
+        (local-set-key (read-kbd-macro tss-jump-to-definition-key) 'tss-jump-to-definition))
+      ;; For completions
+      (tss-setup-completion-engine)
+      ;; For eldoc
+      (set (make-local-variable 'eldoc-documentation-function) 'tss--echo-method-usage)
+      (turn-on-eldoc-mode)
+      (when (commandp 'typescript-insert-and-indent)
+        (eldoc-add-command 'typescript-insert-and-indent))
+      ;; For flymake
+      (flymake-mode t)
+      ;; Setup TSS
+      (tss-restart-current-buffer t)
+      (tss--info "finished setup for %s" (current-buffer)))))
 
 ;;;###autoload
 (defun tss-config-default ()
@@ -1427,7 +1483,8 @@ absolute (TODO eliminate this limit)."
           (run-with-idle-timer tss-run-flymake-idle-interval
                                t #'tss-run-flymake)))
   ;; Delete tss process of the buffer when kill buffer.
-  (add-hook 'kill-buffer-hook 'tss--delete-process t))
+  ;; (add-hook 'kill-buffer-hook 'tss--delete-process t)
+  )
 
 
 (provide 'tss)
