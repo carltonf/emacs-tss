@@ -212,10 +212,8 @@
     ("param"     . ("name" "type"))
     ("value"     . ("type"))))
 
-(defvar tss--last-send-string-failed-p nil)
-(make-variable-buffer-local 'tss--last-send-string-failed-p)
-(defvar tss--current-active-p t)
-(make-variable-buffer-local 'tss--current-active-p)
+(defvar-local tss--last-send-string-failed-p nil)
+(defvar-local tss--current-active-p t)
 
 (defmacro tss--awhen (test &rest body)
   (declare (indent 1))
@@ -435,17 +433,11 @@ and `point'."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; For typescript-tools
 
-(defvar tss--proc nil)
-(make-variable-buffer-local 'tss--proc)
-(defvar tss--server-response nil)
-(make-variable-buffer-local 'tss--server-response)
-(defvar tss--incomplete-server-response "")
-(make-variable-buffer-local 'tss--incomplete-server-response)
-
-(defvar tss--json-response-start-char "")
-(make-variable-buffer-local 'tss--json-response-start-char)
-(defvar tss--json-response-end-char "")
-(make-variable-buffer-local 'tss--json-response-end-char)
+(defvar-local tss--proc nil)
+(defvar-local tss--server-response nil)
+(defvar-local tss--incomplete-server-response "")
+(defvar-local tss--json-response-start-char "")
+(defvar-local tss--json-response-end-char "")
 
 ;;; TODO `tss--get-process' and `tss--start-process' should NOT set `tss--proc'
 (defun tss--get-process (&optional initializep)
@@ -818,10 +810,8 @@ source manipulation."
     ac-source-tss-special-comment-attr
     ac-source-tss-referenc-path))
 
-(defvar tss--last-ac-start-point 1)
-(make-variable-buffer-local 'tss--last-ac-start-point)
-(defvar tss--last-ac-candidates nil)
-(make-variable-buffer-local 'tss--last-ac-candidates)
+(defvar-local tss--last-ac-start-point 1)
+(defvar-local tss--last-ac-candidates nil)
 
 (defun tss--insert-with-ac-trigger-command (n)
   (interactive "p")
@@ -963,14 +953,10 @@ source manipulation."
 ;;;;;;;;;;;;;;;;;;
 ;; For eldoc.el
 
-(defvar tss--last-method-eldoc "")
-(make-variable-buffer-local 'tss--last-method-eldoc)
-(defvar tss--last-param-startpt 0)
-(make-variable-buffer-local 'tss--last-param-startpt)
-(defvar tss--last-param-index -2)
-(make-variable-buffer-local 'tss--last-param-index)
-(defvar tss--last-method-definition nil)
-(make-variable-buffer-local 'tss--last-method-definition)
+(defvar-local tss--last-method-eldoc "")
+(defvar-local tss--last-param-startpt 0)
+(defvar-local tss--last-param-index -2)
+(defvar-local tss--last-method-definition nil)
 
 (defun tss--echo-method-usage ()
   (yaxception:$
