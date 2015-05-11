@@ -484,11 +484,6 @@ getting timeout messages."
   :type 'integer
   :group 'typescript)
 
-(defcustom typescript-mode-hook nil
-  "*Hook called by `typescript-mode'."
-  :type 'hook
-  :group 'typescript)
-
 ;;; KeyMap
 
 (defvar typescript-mode-map
@@ -3362,9 +3357,7 @@ Key bindings:
     ;; Avoid byte-compilation errors.  `font-lock-fontify-buffer' is
     ;; marked as interactive only in Emacs 25.
     (with-no-warnings
-      (font-lock-fontify-buffer)))
-
-  (run-mode-hooks 'typescript-mode-hook))
+      (font-lock-fontify-buffer))))
 
 ;;;###autoload
 (eval-after-load 'folding
