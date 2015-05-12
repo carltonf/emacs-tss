@@ -1251,11 +1251,16 @@ source manipulation."
   "TSS Idle timer for various tasks: flymake, status line update
 and etc.")
 
+;; TODO flymake sometimes are slow and easy to break TSS
+(defcustom tss-run-flymake-idlep nil
+  "Whether to run flymake when idle.")
+
 (defun tss-idle-task ()
   "Idle tasks registered with `tss-idle-timer'."
   (when (tss--active-p)
     (tss--set-status-mode-line-str)
-    (when (tss--exist-process)
+    (when (and (tss--exist-process)
+               tss-run-flymake-idlep)
       (tss-run-flymake))))
 
 ;;; TODO migrate to modern framework: flycheck
@@ -1265,41 +1270,34 @@ and etc.")
 
 Always perform this checking over selected window buffer"
   (interactive)
-  (yaxception:$
-    (yaxception:try
-      (with-current-buffer (window-buffer)
-        (when (and (tss--active-p)
-                   (tss--exist-process))
-          (tss--debug "Start run flymake")
-          (tss--sync-server)
-          (setq flymake-last-change-time nil)
-          (setq flymake-check-start-time (if (functionp 'flymake-float-time)
-                                             (flymake-float-time)
-                                           (float-time)))
-          (let* ((ret (tss--get-server-response "showErrors"
-                                                :waitsec 2
-                                                :response-start-char "["
-                                                :response-end-char "]"))
-                 (errors (when (arrayp ret)
-                           (mapcar (lambda (e)
-                                     (let* ((file (cdr (assoc 'file e)))
-                                            (start (cdr (assoc 'start e)))
-                                            (line (cdr (assoc 'line start)))
-                                            (col (cdr (or (assoc 'character start)
-                                                          (assoc 'col start))))
-                                            (text (cdr (assoc 'text e))))
-                                       (tss--trace "Found error file[%s] line[%s] col[%s] ... %s" file line col text)
-                                       (format "%s (%d,%d): %s" file (or line 0) (or col 0) text)))
-                                   ret))))
-            (when errors
-              (setq flymake-new-err-info (flymake-parse-err-lines flymake-new-err-info errors)))
-            (flymake-post-syntax-check 0 "tss")
-            (setq flymake-is-running nil)))))
-    (yaxception:catch 'error e
-      (tss--show-message "%s" (yaxception:get-text e))
-      (tss--error "failed jump to definition : %s\n%s"
-                  (yaxception:get-text e)
-                  (yaxception:get-stack-trace-string e)))))
+  (with-current-buffer (window-buffer)
+    (when (and (tss--active-p)
+               (tss--exist-process))
+      (tss--debug "Start run flymake")
+      (tss--sync-server)
+      (setq flymake-last-change-time nil)
+      (setq flymake-check-start-time (if (functionp 'flymake-float-time)
+                                         (flymake-float-time)
+                                       (float-time)))
+      (let* ((ret (tss--get-server-response "showErrors"
+                                            :waitsec 2
+                                            :response-start-char "["
+                                            :response-end-char "]"))
+             (errors (when (arrayp ret)
+                       (mapcar (lambda (e)
+                                 (let* ((file (cdr (assoc 'file e)))
+                                        (start (cdr (assoc 'start e)))
+                                        (line (cdr (assoc 'line start)))
+                                        (col (cdr (or (assoc 'character start)
+                                                      (assoc 'col start))))
+                                        (text (cdr (assoc 'text e))))
+                                   (tss--trace "Found error file[%s] line[%s] col[%s] ... %s" file line col text)
+                                   (format "%s (%d,%d): %s" file (or line 0) (or col 0) text)))
+                               ret))))
+        (when errors
+          (setq flymake-new-err-info (flymake-parse-err-lines flymake-new-err-info errors)))
+        (flymake-post-syntax-check 0 "tss")
+        (setq flymake-is-running nil)))))
 
 ;;; TODO the following doesn't work as its name suggested
 ;;;###autoload
@@ -1347,7 +1345,8 @@ service as well. "
       ;; hard restart
       (when hardp
         (remhash tss--project tss--project-runtime-table))
-      (tss--setup-project-for-current-buffer tss--project))))
+      (tss--setup-project-for-current-buffer tss--project)))
+  (tss--set-status-mode-line-str))
 
 ;;;###autoload
 (defun tss-stop-current-buffer ()
@@ -1523,10 +1522,7 @@ associated with this buffer.")
   (unless tss-idle-task-timer
     (setq tss-idle-task-timer
           (run-with-idle-timer tss-idle-task-idle-interval
-                               t #'tss-idle-task)))
-  ;; Delete tss process of the buffer when kill buffer.
-  ;; (add-hook 'kill-buffer-hook 'tss--delete-process t)
-  )
+                               t #'tss-idle-task))))
 
 
 (provide 'tss)
