@@ -577,7 +577,8 @@ NOTE: INITIALIZEP only has message difference."
                    (start-process-shell-command procnm tss--project-buffer cmdstr)))
            (waiti 0))
       (when proc
-        (set-process-filter proc 'tss--receive-server-response)
+        (set-process-filter proc #'tss--receive-server-response)
+        (set-process-sentinel proc #'tss--proc-sentinel)
         (set-process-query-on-exit-flag proc nil)
         (setq tss--server-response nil)
         (setq tss--incomplete-server-response "")
@@ -619,6 +620,15 @@ NOTE: INITIALIZEP only has message difference."
            (goto-char (point-max))
            (ignore-errors (backward-list))
            (= (point) (point-min))))))
+
+(defun tss--proc-sentinel (proc event)
+  "TSS process sentinel"
+  (message "TSS: %s had the event `%s'" process event)
+  ;; update mode line
+  ;; TODO: how to set all buffers within a project
+  ;; for now let's do it with a timer
+  (with-current-buffer (window-buffer)
+      (tss--set-status-mode-line-str)))
 
 (defun tss--receive-server-response (proc res)
   (tss--trace "Received server response.\n%s" res)
@@ -1232,13 +1242,21 @@ source manipulation."
                   (yaxception:get-text e)
                   (yaxception:get-stack-trace-string e)))))
 
-(defcustom tss-run-flymake-idle-interval 2
-  "Idle interval to run `flymake' in current buffer."
+(defcustom tss-idle-task-idle-interval 3
+  "Idle interval to run `tss-idle-task' in the background."
   :type 'integer
   :group 'tss)
 
-(defvar tss-run-flymake-idle-timer nil
-  "Idle timer for `tss-run-flymake'")
+(defvar tss-idle-task-timer nil
+  "TSS Idle timer for various tasks: flymake, status line update
+and etc.")
+
+(defun tss-idle-task ()
+  "Idle tasks registered with `tss-idle-timer'."
+  (when (tss--active-p)
+    (tss--set-status-mode-line-str)
+    (when (tss--exist-process)
+      (tss-run-flymake))))
 
 ;;; TODO migrate to modern framework: flycheck
 ;;;###autoload
@@ -1433,6 +1451,25 @@ absolute (TODO eliminate this limit)."
                    collect (expand-file-name path prjroot))
              tss--root-sources-project-configs-table)))
 
+(defvar-local tss--status-mode-line-str ""
+  "Mode line string to indicate the current status of TSS process
+associated with this buffer.")
+(put 'tss--status-mode-line-str 'risky-local-variable t)
+
+(defun tss--set-status-mode-line-str ()
+  "Return an appropriate string based on `tss--proc's status. "
+  (when (tss--active-p)
+    (let ((status (process-status tss--proc))
+          (tss-str "TSS"))
+      (setq tss-str
+            (pcase status
+              (`run
+               (propertize tss-str 'face 'hi-green-b))
+              (_
+               (propertize tss-str 'face 'error))))
+      (setq tss--status-mode-line-str (s-concat "[" tss-str "] ")))))
+
+
 ;;;###autoload
 (defun tss-setup-current-buffer ()
   "Do setup for using TSS in current buffer."
@@ -1464,7 +1501,9 @@ absolute (TODO eliminate this limit)."
       (flymake-mode t)
       ;; Setup TSS
       (tss-restart-current-buffer t)
-      (tss--info "finished setup for %s" (current-buffer)))))
+      (tss--info "finished setup for %s" (current-buffer))
+      ;; setup mode-line
+      (tss--set-status-mode-line-str))))
 
 ;;;###autoload
 (defun tss-config-default ()
@@ -1478,10 +1517,13 @@ absolute (TODO eliminate this limit)."
   ;; Run flymake when save buffer.
   (add-to-list 'flymake-err-line-patterns '("\\`\\(.+?\\.ts\\) (\\([0-9]+\\),\\([0-9]+\\)): \\(.+\\)" 1 2 3 4))
   (add-hook 'after-save-hook 'tss-run-flymake t)
-  (unless tss-run-flymake-idle-timer
-    (setq tss-run-flymake-idle-timer
-          (run-with-idle-timer tss-run-flymake-idle-interval
-                               t #'tss-run-flymake)))
+  ;; mode line indicator
+  (add-to-list 'mode-line-modes '(t tss--status-mode-line-str))
+  ;; idle timer to maintain various meta info or background checking.
+  (unless tss-idle-task-timer
+    (setq tss-idle-task-timer
+          (run-with-idle-timer tss-idle-task-idle-interval
+                               t #'tss-idle-task)))
   ;; Delete tss process of the buffer when kill buffer.
   ;; (add-hook 'kill-buffer-hook 'tss--delete-process t)
   )
