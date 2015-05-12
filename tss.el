@@ -326,7 +326,8 @@ and `point'."
         t))
     (yaxception:catch 'error e
       (tss--error "failed send string : %s" (yaxception:get-text e))
-      (tss--delete-process t)
+      (error "tss--send-string is gonna kill TSS.")
+      ;; (tss--delete-process t)
       (if (not tss--last-send-string-failed-p)
           (setq tss--last-send-string-failed-p t)
         (setq tss--current-active-p nil)
@@ -494,8 +495,9 @@ See `tss--json-response-start-char' for more info.")
 ;;      (t (tss--start-process initializep)))))
 
 (defun tss--exist-process ()
+  "Check whether `tss--proc' is set and *alive*."
   (and (processp tss--proc)
-       (process-status (process-name tss--proc))
+       (eq (process-status tss--proc) 'run)
        t))
 
 (defvar tss--project-runtime-table (make-hash-table :test #'equal)
@@ -623,7 +625,7 @@ NOTE: INITIALIZEP only has message difference."
 
 (defun tss--proc-sentinel (proc event)
   "TSS process sentinel"
-  (message "TSS: %s had the event `%s'" process event)
+  (message "TSS: %s had the event `%s'" proc event)
   ;; update mode line
   ;; TODO: how to set all buffers within a project
   ;; for now let's do it with a timer
@@ -1242,7 +1244,7 @@ source manipulation."
                   (yaxception:get-text e)
                   (yaxception:get-stack-trace-string e)))))
 
-(defcustom tss-idle-task-idle-interval 3
+(defcustom tss-idle-task-idle-interval 2
   "Idle interval to run `tss-idle-task' in the background."
   :type 'integer
   :group 'tss)
@@ -1259,9 +1261,13 @@ and etc.")
   "Idle tasks registered with `tss-idle-timer'."
   (when (tss--active-p)
     (tss--set-status-mode-line-str)
-    (when (and (tss--exist-process)
-               tss-run-flymake-idlep)
-      (tss-run-flymake))))
+    (if (tss--exist-process)
+        (when tss-run-flymake-idlep
+          (tss-run-flymake))
+      ;; try to (soft)-restart TSS current buffer
+      (tss-restart-current-buffer)
+      (unless (tss--exist-process)
+        (error "TSS idle soft restart failed!!!")))))
 
 ;;; TODO migrate to modern framework: flycheck
 ;;;###autoload
