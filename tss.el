@@ -1305,24 +1305,12 @@ Always perform this checking over selected window buffer"
         (flymake-post-syntax-check 0 "tss")
         (setq flymake-is-running nil)))))
 
-;;; TODO the following doesn't work as its name suggested
+;;; TODO use "files" command and `get-file-buffer' to reload the whole project.
 ;;;###autoload
 (defun tss-reload-current-project ()
   "Reload project data for current buffer."
   (interactive)
-  (error "Reloading project is NOT supported.")
-  (yaxception:$
-    (yaxception:try
-      (when (and (tss--active-p)
-                 (tss--exist-process))
-        (tss--debug "Start reload current project of %s" (buffer-name))
-        (tss--send-string tss--proc "reload")
-        (tss--show-message "Finished request reload.")))
-    (yaxception:catch 'error e
-      (tss--show-message "%s" (yaxception:get-text e))
-      (tss--error "failed reload current project : %s\n%s"
-                  (yaxception:get-text e)
-                  (yaxception:get-stack-trace-string e)))))
+  (error "Reloading project is NOT supported."))
 
 ;;;###autoload
 (defun tss-restart-current-buffer (&optional hardp)
