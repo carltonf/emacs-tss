@@ -310,7 +310,10 @@ and `point'."
              response-end-char "}"))
       ((or "references" "navigationBarItems" "navigateToItems" "files" "showErrors")
        (setq response-start-char "["
-             response-end-char "]")))
+             response-end-char "]"))
+      (_
+       (setq response-start-char ""
+             response-end-char "")))
     ;; send and display
     (setq resp (tss--get-server-response
                 cmdstr :waitsec 2
@@ -439,8 +442,8 @@ and `point'."
   "Current TSS process for this buffer, in case of TS project all
 project buffers share a single TS process.")
 (defvar-local tss--project nil
-  "Root path of the TS project current buffer belongs to. For
-a single TS file, it's the path of this file.")
+  "TS project of the current buffer. For a single TS file, it's
+the path of this file.")
 (defvar-local tss--project-buffer nil
   "Buffer for TS project, in case no project is configured the
 file buffer is returned.")
@@ -501,7 +504,7 @@ See `tss--json-response-start-char' for more info.")
        t))
 
 (defvar tss--project-runtime-table (make-hash-table :test #'equal)
-  "A table mapping source path or project root to TS project runtime buffer.
+  "A table mapping TS project to project runtime buffer.
 Here buffer is used as an object, whose local variables hold all
 runtime configurations for the project. When a TS buffer is first
 visited, `tss--setup-project-for-current-buffer' will lookup this
@@ -509,8 +512,8 @@ table to decide whether to start a new TSS.
 
 NOTE the key should be canonized path.")
 
-(defun tss--delete-process (&optional killp waitp prjpath)
-  "Delete process `tss--proc'. If PRJPATH is non-nil, remove it
+(defun tss--delete-process (&optional killp waitp project)
+  "Delete process `tss--proc'. If PROJECT is non-nil, remove it
 from `tss--project-runtime-table'."
   (yaxception:$
     (yaxception:try
@@ -522,8 +525,8 @@ from `tss--project-runtime-table'."
               (t
                (process-send-string proc "quit\n")
                (delete-process tss--proc)))
-        (when prjpath
-          (remhash prjpath tss--project-runtime-table))
+        (when project
+          (remhash project tss--project-runtime-table))
         (setq tss--proc nil))
       t)
     (yaxception:catch 'error e
@@ -544,7 +547,7 @@ from `tss--project-runtime-table'."
   "Start a new process for current buffer or project, cleaning old processes beforehand.
 
 If PROJECTP is non-nil, look `tss--project' up in
-`tss--root-sources-project-configs-table'. If a project
+`tss--project-root-sources-table'. If a project
 configuration exists, instead of loading this file in TSS, use
 sources configured to start a new TSS process.
 
@@ -554,22 +557,25 @@ NOTE: INITIALIZEP only has message difference."
   (tss--trace "Start tss process for %s" (buffer-name))
   (with-current-buffer tss--project-buffer
     (let* ( ;; single file is considered as one-file virtual project
-           (prjpath (if projectp
+           (project (if projectp
                         tss--project
                       (buffer-file-name)))
-           (srcpaths (or (loop for path in (gethash prjpath tss--root-sources-project-configs-table)
+           (project-root (tss--project-get-root project))
+           (srcpaths (or (loop for path in (tss--project-get-root-sources project)
                                ;; make sure the source paths are absolute
-                               collect (expand-file-name path prjpath))
-                         (list prjpath)))
-           (procnm (format "typescript-service-%s" (file-name-nondirectory prjpath)))
+                               collect (expand-file-name path project-root))
+                         (list project)))
+           (procnm (format "typescript-service-%s" (if projectp
+                                                       project
+                                                     (file-name-nondirectory project))))
            (cmdstr (format "tss %s"
                            (s-join " " (mapcar
                                         (lambda (path)
                                           (shell-quote-argument path))
                                         srcpaths))))
            (process-connection-type nil)
-           (proc (when (file-exists-p prjpath)
-                   (tss--delete-process t t (when projectp prjpath))
+           (proc (progn
+                   (tss--delete-process t t (when projectp project))
                    (tss--trace "Do %s" cmdstr)
                    (cond (initializep (tss--show-message "Load '%s' ..." (buffer-name)))
                          (t           (tss--show-message "Reload '%s' ..." (buffer-name))))
@@ -594,7 +600,7 @@ NOTE: INITIALIZEP only has message difference."
         (tss--info "Finished start tss process.")
         (when projectp
           ;; record this process for project
-          (puthash prjpath tss--project tss--project-runtime-table))
+          (puthash project tss--project tss--project-runtime-table))
         (when (eq tss--server-response 'succeed)
           (cond (initializep (tss--show-message "Loaded '%s'." (buffer-name)))
                 (t           (tss--show-message "Reloaded '%s'." (buffer-name)))))
@@ -1334,7 +1340,7 @@ service as well. "
           (setq tss--last-send-string-failed-p nil)
           (setq tss--current-active-p t)
           (setq tss--project-buffer (current-buffer))
-          (setq tss--proc (tss--start-process :projectp nil
+          (setq tss--proc (tss--start-process :projectp t
                                               :initializep t)))
       ;; hard restart
       (when hardp
@@ -1378,10 +1384,11 @@ service as well. "
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: TS Project
 ;;;
-(defvar tss--root-sources-project-configs-table (make-hash-table :test #'equal)
+(defvar tss--project-root-sources-table (make-hash-table :test #'equal)
   "A TypeScript project can either be defined by \"tsconfig.js\"
 or root-sources files. This variable is a table mapping from
-project root (absolute) to a list root sources (absolute).
+project name to to a list, whose car is project root (absolute)
+and cdr is root sources (absolute/relative).
 
 The key and value of this table need to be canonized path, DO NOT
 use `puthash' directly. Use `tss-project-configure' instead.
@@ -1391,57 +1398,80 @@ use `puthash' directly. Use `tss-project-configure' instead.
 TODO gulp config file may be parsed to get automatic root source configurations.
 TODO implement support for tsconfig.js.")
 
+(defsubst tss--project-get-root (project)
+  "Helper function. Get the root for TS project from
+  `tss--project-root-sources-table'."
+  (car (gethash project tss--project-root-sources-table)))
+
+(defsubst tss--project-get-root-sources (project)
+  "Helper function. Get the list of root sources for PROJECT from
+  `tss--project-root-sources-table'."
+  (cadr (gethash project tss--project-root-sources-table)))
+
 (defun tss--get-project (fpath)
-  "Get the project path for FPATH. Project configurations is
-retrieved from `tss--root-sources-project-configs-table'. In case
-no project exists for FPATH, FPATH is returned."
-  (or (loop for root in (hash-table-keys tss--root-sources-project-configs-table)
-            when (string-prefix-p root fpath)
-            return root)
+  "Get the project name for FPATH. Project configurations are
+retrieved from `tss--project-root-sources-table'. In case no
+project exists for FPATH, FPATH is returned."
+  (or (loop for project in (hash-table-keys tss--project-root-sources-table)
+            when (string-prefix-p (tss--project-get-root project) fpath)
+            return project)
       ;; one-file virtual project ;P
       fpath))
 
-(defun tss--setup-project-for-current-buffer (prjroot)
+(defun tss--setup-project-for-current-buffer (project)
   "Setup project for current buffer.
 
-Under a project:
 1. look up `tss--project-runtime-table' to see whether this
-project has already been setup if yes return all related
-settings.
-2. If not, start such a project setup."
-  (let ((prjbuf (gethash prjroot tss--project-runtime-table)))
-    (if (buffer-live-p prjbuf)
-        (progn
-          (setq tss--project-buffer prjbuf)
-          (setq tss--proc (buffer-local-value 'tss--proc prjbuf)))
-      ;; create new setup, project buffer is a virtual buffer (ps: buffer is
-      ;; ELisp's object)
+project has already been setup and the status is correct if yes
+return all related settings.
+2. If not, re-setup this a project and the buffer."
+  (let ((prjbuf (gethash project tss--project-runtime-table)))
+    (unless (and (buffer-live-p prjbuf)
+                 (progn
+                   (setq tss--project-buffer prjbuf)
+                   (setq tss--proc (buffer-local-value 'tss--proc prjbuf))
+                   (if (tss--exist-process)
+                       t                ;successful, return
+                     (message "Project '%s' status is incorrect! Hard Restart!"
+                              project)
+                     nil)))
+      ;; create new setup, project buffer is a virtual buffer
       (setq tss--project-buffer
             (get-buffer-create
-             ;; buffer name is only suggestive
-             (format " *TS: %s*" (file-name-nondirectory tss--project))))
+             (format " *TS: %s*" tss--project)))
       (with-current-buffer tss--project-buffer
-        (setq default-directory prjroot)
-        (setq tss--project prjroot)
+        (setq default-directory (tss--project-get-root project))
+        (setq tss--project project)
         (setq tss--project-buffer (current-buffer))
         (setq tss--proc (tss--start-process :projectp t
-                                            :initializep t)))
-      (puthash prjroot tss--project-buffer tss--project-runtime-table)
+                                            :initializep t))
+        (if (tss--exist-process)
+            (puthash project tss--project-buffer tss--project-runtime-table)
+          (kill-buffer)
+          (error "Can't start TSS for project '%s'" project)))
       ;; recursive call to setup current buffer
-      (tss--setup-project-for-current-buffer prjroot))))
+      (tss--setup-project-for-current-buffer project))))
 
-(defun tss-project-configure (prjroot root-sources)
-  "Set ROOT-SOURCES for PRJROOT in
-`tss--root-sources-project-configs-table'. Always use this
-function to setup TS projects.
+(defun tss-project-configure (prjname prjroot root-sources)
+  "Set PRJROOT and ROOT-SOURCES for PRJNAME in
+`tss--project-root-sources-table'. If PRJROOT is nil or 'current,
+then use the directory of the configuration file.
+
+Always use this function to setup TS projects.
 
 ROOT-SOURCES can be relative to PRJROOT, which itself needs to be
 +absolute (TODO eliminate this limit)."
-  (let ((prjroot (expand-file-name prjroot)))
-    (puthash prjroot
-             (loop for path in root-sources
-                   collect (expand-file-name path prjroot))
-             tss--root-sources-project-configs-table)))
+  (setq prjroot (pcase prjroot
+                  ((or `nil `current)
+                   (expand-file-name default-directory))
+                  ((pred #'file-exists-p)
+                   (expand-file-name prjroot))
+                  (_ (error "'%s' is NOT a valid project root." prjroot))))
+  (puthash prjname (list prjroot
+                         ;; root sources
+                         (loop for path in root-sources
+                               collect (expand-file-name path prjroot)))
+           tss--project-root-sources-table))
 
 (defvar-local tss--status-mode-line-str ""
   "Mode line string to indicate the current status of TSS process
@@ -1492,7 +1522,7 @@ associated with this buffer.")
       ;; For flymake
       (flymake-mode t)
       ;; Setup TSS
-      (tss-restart-current-buffer t)
+      (tss-restart-current-buffer)
       (tss--info "finished setup for %s" (current-buffer))
       ;; setup mode-line
       (tss--set-status-mode-line-str))))
