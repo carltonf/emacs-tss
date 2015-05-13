@@ -1384,11 +1384,10 @@ or root-sources files. This variable is a table mapping from
 project root (absolute) to a list root sources (absolute).
 
 The key and value of this table need to be canonized path, DO NOT
-use `puthash' directly. Use `tss-project-setup' instead.
+use `puthash' directly. Use `tss-project-configure' instead.
 
 *NOTE*: Currently manual setting is required for a new project.
 
-TODO use .dir.el? to make setup persistent?
 TODO gulp config file may be parsed to get automatic root source configurations.
 TODO implement support for tsconfig.js.")
 
@@ -1431,13 +1430,13 @@ settings.
       ;; recursive call to setup current buffer
       (tss--setup-project-for-current-buffer prjroot))))
 
-(defun tss-project-setup (prjroot root-sources)
+(defun tss-project-configure (prjroot root-sources)
   "Set ROOT-SOURCES for PRJROOT in
 `tss--root-sources-project-configs-table'. Always use this
 function to setup TS projects.
 
 ROOT-SOURCES can be relative to PRJROOT, which itself needs to be
-absolute (TODO eliminate this limit)."
++absolute (TODO eliminate this limit)."
   (let ((prjroot (expand-file-name prjroot)))
     (puthash prjroot
              (loop for path in root-sources
