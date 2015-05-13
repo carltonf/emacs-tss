@@ -133,6 +133,9 @@
 (require 'log4e)
 (require 'yaxception)
 
+(require 'f)
+(require 's)
+
 (defgroup tss nil
   "Auto completion / Flymake for TypeScript."
   :group 'completion
@@ -631,7 +634,7 @@ NOTE: INITIALIZEP only has message difference."
 
 (defun tss--proc-sentinel (proc event)
   "TSS process sentinel"
-  (message "TSS: %s had the event `%s'" proc event)
+  (message "TSS: %s had the event: %s" proc event)
   ;; update mode line
   ;; TODO: how to set all buffers within a project
   ;; for now let's do it with a timer
@@ -1452,12 +1455,29 @@ return all related settings.
       ;; recursive call to setup current buffer
       (tss--setup-project-for-current-buffer project))))
 
-(defun tss-project-configure (prjname prjroot root-sources)
-  "Set PRJROOT and ROOT-SOURCES for PRJNAME in
-`tss--project-root-sources-table'. If PRJROOT is nil or 'current,
-then use the directory of the configuration file.
+;; TODO let TYPE be able to figure out the TSS parameters
+(defun* tss-project-configure (&key name prjroot root-sources type)
+  "Set PRJROOT and ROOT-SOURCES for NAME in
+`tss--project-root-sources-table'. 
 
 Always use this function to setup TS projects.
+
+If PRJROOT is nil or 'current, then use the directory of the
+configuration file.
+
+If ROOT-SOURCES is nil, try to figure out root sources using TYPE.
+
+TYPE is a way to automatically figure out root-sources, the
+following types are supported: 
+
+'gulp: assume tools/typings/typescriptApp.d.ts is the definition
+TS reference files for this project. All other \".d.ts\" files
+will also be included. This setup is popularized by 
+http://weblogs.asp.net/dwahlin/creating-a-typescript-workflow-with-gulp
+https://github.com/DanWahlin/AngularIn20TypeScript
+
+'any or nil: in this case, ROOT-SOURCES has been configured, o/w
+an error is thrown.
 
 ROOT-SOURCES can be relative to PRJROOT, which itself needs to be
 +absolute (TODO eliminate this limit)."
@@ -1467,10 +1487,21 @@ ROOT-SOURCES can be relative to PRJROOT, which itself needs to be
                   ((pred #'file-exists-p)
                    (expand-file-name prjroot))
                   (_ (error "'%s' is NOT a valid project root." prjroot))))
-  (puthash prjname (list prjroot
-                         ;; root sources
-                         (loop for path in root-sources
-                               collect (expand-file-name path prjroot)))
+
+  (setq root-sources
+        (pcase type
+          (`gulp
+           (directory-files (expand-file-name (f-join "tools" "typings") prjroot)
+                            t "\\.d\\.ts$"))
+          ((or `nil `any)
+           (unless (listp root-sources)
+             (error "For %s-type TS project, root-sources have to be set!"
+                    type)))))
+
+  (puthash name (list prjroot
+                      ;; root sources
+                      (loop for path in root-sources
+                            collect (expand-file-name path prjroot)))
            tss--project-root-sources-table))
 
 (defvar-local tss--status-mode-line-str ""
