@@ -1344,7 +1344,7 @@ service as well. "
           (setq tss--last-send-string-failed-p nil)
           (setq tss--current-active-p t)
           (setq tss--project-buffer (current-buffer))
-          (setq tss--proc (tss--start-process :projectp t
+          (setq tss--proc (tss--start-process :projectp nil
                                               :initializep t)))
       ;; hard restart
       (when hardp
@@ -1388,6 +1388,13 @@ service as well. "
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: TS Project
 ;;;
+(defconst tss--project-config-file "emacs-tss-config.el"
+  "Emacs TSS configuration file. It should be in project root,
+and contain tss project configuration code.
+
+NOTE: Make sure the evaluation of the file return the project
+name.")
+
 (defvar tss--project-root-sources-table (make-hash-table :test #'equal)
   "A TypeScript project can either be defined by \"tsconfig.js\"
 or root-sources files. This variable is a table mapping from
@@ -1415,10 +1422,18 @@ TODO implement support for tsconfig.js.")
 (defun tss--get-project (fpath)
   "Get the project name for FPATH. Project configurations are
 retrieved from `tss--project-root-sources-table'. In case no
-project exists for FPATH, FPATH is returned."
+project exists for FPATH, FPATH is returned.
+
+If `tss--project-config-file' is found, project definitions will
+be loaded from there automatically."
   (or (loop for project in (hash-table-keys tss--project-root-sources-table)
             when (string-prefix-p (tss--project-get-root project) fpath)
             return project)
+      ;; load file
+      (let ((prjroot (locate-dominating-file fpath
+                                             tss--project-config-file)))
+        (when prjroot
+          (load (expand-file-name tss--project-config-file prjroot))))
       ;; one-file virtual project ;P
       fpath))
 
@@ -1460,7 +1475,7 @@ return all related settings.
   "Interactive auto Project configuration."
   (interactive)
   ;; search, the order of witnesses means its priority
-  (let* ((prj-root-witnesses '("emacs-tss-config.el"
+  (let* ((prj-root-witnesses `(,tss--project-config-file
                                "gulpfile.js"
                                "package.json"
                                ".git"))
@@ -1476,8 +1491,9 @@ return all related settings.
                (name (file-name-nondirectory (directory-file-name root)))
                sources)
           (pcase prj-found-witness
-            ("emacs-tss-config.el"
-             (load "emacs-tss-config.el"))
+            (tss--project-config-file
+             (load tss--project-config-file)
+             (message "TSS: found emacs-tss-config.el, loading project definitions."))
             ("gulpfile.js"
              (if (y-or-n-p "Found gulp, root sources use \"tools/typings/*.d.ts\"? ")
                  (progn
@@ -1508,9 +1524,11 @@ return all related settings.
 ;; include all TS sources.
 (defun* tss-project-configure (&key name prjroot root-sources type)
   "Set PRJROOT and ROOT-SOURCES for NAME in
-`tss--project-root-sources-table'. 
+`tss--project-root-sources-table'. Return project NAME.
 
 Always use this function to setup TS projects.
+`tss--project-config-file' uses this function to configure
+project.
 
 If PRJROOT is nil or 'current, then use the directory of the
 configuration file.
@@ -1533,26 +1551,32 @@ ROOT-SOURCES can be relative to PRJROOT, which itself needs to be
 +absolute (TODO eliminate this limit)."
   (setq prjroot (pcase prjroot
                   ((or `nil `current)
-                   (expand-file-name default-directory))
+                   (if load-file-name
+                       ;; loaded by script
+                       (file-name-directory load-file-name)
+                     ;; evaluate directly
+                     (expand-file-name default-directory)))
                   ((pred #'file-exists-p)
                    (expand-file-name prjroot))
                   (_ (error "'%s' is NOT a valid project root." prjroot))))
 
   (setq root-sources
-        (pcase type
-          (`gulp
-           (directory-files (expand-file-name (f-join "tools" "typings") prjroot)
-                            t "\\.d\\.ts$"))
-          ((or `nil `any)
-           (unless (listp root-sources)
-             (error "For %s-type TS project, root-sources have to be set!"
-                    type)))))
+        (or root-sources
+            (pcase type
+              (`gulp
+               (directory-files (expand-file-name (f-join "tools" "typings") prjroot)
+                                t "\\.d\\.ts$"))
+              ((or `nil `any)
+               (unless (listp root-sources)
+                 (error "For %s-type TS project, root-sources have to be set!"
+                        type))))))
 
   (puthash name (list prjroot
                       ;; root sources
                       (loop for path in root-sources
                             collect (expand-file-name path prjroot)))
-           tss--project-root-sources-table))
+           tss--project-root-sources-table)
+  name)
 
 (defvar-local tss--status-mode-line-str ""
   "Mode line string to indicate the current status of TSS process
