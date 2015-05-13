@@ -133,6 +133,7 @@
 (require 'log4e)
 (require 'yaxception)
 
+(require 'dash)
 (require 'f)
 (require 's)
 
@@ -1455,7 +1456,56 @@ return all related settings.
       ;; recursive call to setup current buffer
       (tss--setup-project-for-current-buffer project))))
 
-;; TODO let TYPE be able to figure out the TSS parameters
+(defun tss-project-auto-configure ()
+  "Interactive auto Project configuration."
+  (interactive)
+  ;; search, the order of witnesses means its priority
+  (let* ((prj-root-witnesses '("emacs-tss-config.el"
+                               "gulpfile.js"
+                               "package.json"
+                               ".git"))
+         prj-found-witness
+         (root (-some (lambda (witness)
+                        (setq prj-found-witness witness)
+                        (locate-dominating-file default-directory
+                                                witness))
+                      prj-root-witnesses)))
+    (if root
+        (let* ((root (expand-file-name root))
+               (default-directory root)
+               (name (file-name-nondirectory (directory-file-name root)))
+               sources)
+          (pcase prj-found-witness
+            ("emacs-tss-config.el"
+             (load "emacs-tss-config.el"))
+            ("gulpfile.js"
+             (if (y-or-n-p "Found gulp, root sources use \"tools/typings/*.d.ts\"? ")
+                 (progn
+                   (setq name (read-string (format "Project Name (%s): " name)
+                                           nil nil name))
+                   (tss-project-configure :name name
+                                          :type 'gulp)
+                   (message "TSS: new project added \"%s\". " name))
+               (message "TSS: Found gulp but not configure the project.")))
+            (_
+             (message "TSS: Found project witness %s, but not supported yet. Abort."
+                      prj-found-witness))))
+      (message "TSS: No TS project found starting from: %s" default-directory))))
+
+;; TODO better project management
+(defun tss-project-remove (name)
+  "Helper command to remove project NAME from
+`tss--project-root-sources-table'."
+  (interactive (list (completing-read "Project to remove: "
+                                      (hash-table-keys tss--project-root-sources-table)
+                                      nil t)))
+  (when (y-or-n-p (format "Remove project \"%s\"?" name))
+    (remhash name tss--project-root-sources-table)
+    (message "TSS: project \"%s\" removed." name)))
+
+;; TODO let TYPE also be able to figure out the TSS parameters
+;; TODO .git or package.json types can be supported by reading package.json and
+;; include all TS sources.
 (defun* tss-project-configure (&key name prjroot root-sources type)
   "Set PRJROOT and ROOT-SOURCES for NAME in
 `tss--project-root-sources-table'. 
