@@ -1272,12 +1272,51 @@ and etc.")
   (when (tss--active-p)
     (tss--set-status-mode-line-str)
     (if (tss--exist-process)
-        (when tss-run-flymake-idlep
-          (tss-run-flymake))
+        (if tss-run-flymake-idlep
+            (tss-run-flymake)
+          (tss-flymake-update-buffer nil))
       ;; try to (soft)-restart TSS current buffer
       (tss-restart-current-buffer)
       (unless (tss--exist-process)
         (error "TSS idle soft restart failed!!!")))))
+
+;;;###autoload
+(defvar-local tss-flymake--cache nil
+  "A list of error strings that returned by `tss-run-flymake'.
+This cache is used by idle task to update flymake status without
+actually sending 'showErrors' command.")
+
+;;;###autoload
+(defvar-local tss-flymake-last-check-start-time 0
+  "Record the last run of `tss-run-flymake'. Used by
+`tss-flymake-update-buffer'.")
+
+;;;###autoload
+(defsubst tss-flymake-update-buffer (updatep &optional check-start-t errors)
+  "Use `tss-flymake--cache' to update buffer status.
+
+If UPDATEP is non-nil, update `tss-flymake-last-check-start-time'
+and `tss-flymake--cache' with CHECK-START-T and ERRORS, even if
+they are nil. "
+  (let (cache time)
+    (with-current-buffer tss--project-buffer
+      (when updatep
+        (setq tss-flymake--cache errors)
+        (setq tss-flymake-last-check-start-time check-start-t))
+      (setq cache tss-flymake--cache
+            time tss-flymake-last-check-start-time))
+    ;; the following runs in the `window-buffer'
+    ;; NOTE: cache can be nil, which simply remove all errors from current buffer
+    (when time
+      ;; status variables needed by `flymake-post-syntax-check', which does
+      ;; various indication updates.
+      (setq flymake-last-change-time nil)
+      (setq flymake-check-start-time time)
+      (setq flymake-new-err-info
+            (flymake-parse-err-lines flymake-new-err-info
+                                     cache))
+      (flymake-post-syntax-check 0 "tss")
+      (setq flymake-is-running nil))))
 
 ;;; TODO migrate to modern framework: flycheck
 ;;;###autoload
@@ -1291,11 +1330,10 @@ Always perform this checking over selected window buffer"
                (tss--exist-process))
       (tss--debug "Start run flymake")
       (tss--sync-server)
-      (setq flymake-last-change-time nil)
-      (setq flymake-check-start-time (if (functionp 'flymake-float-time)
-                                         (flymake-float-time)
-                                       (float-time)))
-      (let* ((ret (tss--get-server-response "showErrors"
+      (let* ((check-start-time (if (functionp 'flymake-float-time)
+                                   (flymake-float-time)
+                                 (float-time)))
+             (ret (tss--get-server-response "showErrors"
                                             :waitsec 2
                                             :response-start-char "["
                                             :response-end-char "]"))
@@ -1310,10 +1348,7 @@ Always perform this checking over selected window buffer"
                                    (tss--trace "Found error file[%s] line[%s] col[%s] ... %s" file line col text)
                                    (format "%s (%d,%d): %s" file (or line 0) (or col 0) text)))
                                ret))))
-        (when errors
-          (setq flymake-new-err-info (flymake-parse-err-lines flymake-new-err-info errors)))
-        (flymake-post-syntax-check 0 "tss")
-        (setq flymake-is-running nil)))))
+        (tss-flymake-update-buffer t check-start-time errors)))))
 
 ;;; TODO use "files" command and `get-file-buffer' to reload the whole project.
 ;;;###autoload
