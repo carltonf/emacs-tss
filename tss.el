@@ -1492,7 +1492,7 @@ return all related settings.
                sources)
           (pcase prj-found-witness
             (tss--project-config-file
-             (load tss--project-config-file)
+             (load (expand-file-name tss--project-config-file root))
              (message "TSS: found emacs-tss-config.el, loading project definitions."))
             ("gulpfile.js"
              (if (y-or-n-p "Found gulp, root sources use \"tools/typings/*.d.ts\"? ")
