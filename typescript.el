@@ -1757,6 +1757,23 @@ nil."
          (list (cons 'c typescript-comment-lineup-func))))
     (c-get-syntactic-indentation (list (cons symbol anchor)))))
 
+(defcustom typescript-special-block-indent-level 0
+  "Number of spaces for special indent blocks in
+`typescript-mode'. Currently only 'module' block is considered
+special."
+  :type 'integer
+  :group 'typescript)
+
+(defun typescript--special-block-indent-p ()
+  "Helper function for `typescript--proper-indentation'. Whether
+the line to indent is within a special indent block.
+
+Currently only 'module' block is considered special.
+
+NOTE: dirty hack, please make sure use this just before the
+default indent behavior. "
+  (looking-at "module\\s-+"))
+
 (defun typescript--proper-indentation (parse-status)
   "Return the proper indentation for the current line."
   (save-excursion
@@ -1768,20 +1785,23 @@ nil."
           ((eq (char-after) ?#) 0)
           ((save-excursion (typescript--beginning-of-macro)) 4)
           ((nth 1 parse-status)
-           (let ((same-indent-p (looking-at
+           (let ((curcol (current-column))
+                 (same-indent-p (looking-at
                                  "[]})]\\|\\_<case\\_>\\|\\_<default\\_>"))
                  (continued-expr-p (typescript--continued-expression-p)))
              (goto-char (nth 1 parse-status))
              (if (looking-at "[({[]\\s-*\\(/[/*]\\|$\\)")
                  (progn
                    (skip-syntax-backward " ")
-		   (when (eq (char-before) ?\)) (backward-list))
+                   (when (eq (char-before) ?\)) (backward-list))
                    (back-to-indentation)
                    (cond (same-indent-p
                           (current-column))
                          (continued-expr-p
                           (+ (current-column) (* 2 typescript-indent-level)
                              typescript-expr-indent-offset))
+                         ((typescript--special-block-indent-p)
+                          (+ (current-column) typescript-special-block-indent-level))
                          (t
                           (+ (current-column) typescript-indent-level))))
                (unless same-indent-p
