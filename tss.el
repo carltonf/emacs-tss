@@ -565,13 +565,17 @@ NOTE: INITIALIZEP only has message difference."
                         tss--project
                       (buffer-file-name)))
            (project-root (tss--project-get-root project))
-           (srcpaths (or (loop for path in (tss--project-get-root-sources project)
-                               ;; make sure the source paths are absolute
-                               collect (expand-file-name path project-root))
-                         (list project)))
+           (srcpaths (cond
+                      ((eq (tss--project-get-root-sources project) t)
+                       nil)
+                      (projectp
+                       (loop for path in (tss--project-get-root-sources project)
+                             ;; make sure the source paths are absolute
+                             collect (expand-file-name path project-root)))
+                      (_ (list project))))
            (procnm (format "typescript-service-%s" (if projectp
                                                        project
-                                                     (file-name-nondirectory project))))
+                                                     (f-filename project))))
            (cmdstr (format "tss %s"
                            (s-join " " (mapcar
                                         (lambda (path)
@@ -1423,18 +1427,16 @@ service as well. "
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: TS Project
 ;;;
-(defconst tss--project-config-file "emacs-tss-config.el"
-  "Emacs TSS configuration file. It should be in project root,
-and contain tss project configuration code.
-
-NOTE: Make sure the evaluation of the file return the project
-name.")
+(defconst tss--project-config-file "tsconfig.json"
+  "TS project configuration file, see
+https://github.com/Microsoft/TypeScript/wiki/tsconfig.json")
 
 (defvar tss--project-root-sources-table (make-hash-table :test #'equal)
   "A TypeScript project can either be defined by \"tsconfig.js\"
 or root-sources files. This variable is a table mapping from
 project name to to a list, whose car is project root (absolute)
-and cdr is root sources (absolute/relative).
+and cdr is root sources (absolute/relative) or t which indicates
+the presence of \"tsconfig.el\".
 
 The key and value of this table need to be canonized path, DO NOT
 use `puthash' directly. Use `tss-project-configure' instead.
@@ -1468,7 +1470,9 @@ be loaded from there automatically."
       (let ((prjroot (locate-dominating-file fpath
                                              tss--project-config-file)))
         (when prjroot
-          (load (expand-file-name tss--project-config-file prjroot))))
+          (tss-project-configure :prjroot prjroot
+                                 :name (f-filename prjroot)
+                                 :type 'tsconfig)))
       ;; one-file virtual project ;P
       fpath))
 
@@ -1523,11 +1527,13 @@ return all related settings.
     (if root
         (let* ((root (expand-file-name root))
                (default-directory root)
-               (name (file-name-nondirectory (directory-file-name root)))
+               (name (f-filename root))
                sources)
           (pcase prj-found-witness
             (tss--project-config-file
-             (load (expand-file-name tss--project-config-file root))
+             (tss-project-configure :prjroot root
+                                    :name name
+                                    :type 'tsconfig)
              (message "TSS: found emacs-tss-config.el, loading project definitions."))
             ("gulpfile.js"
              (if (y-or-n-p "Found gulp, root sources use \"tools/typings/*.d.ts\"? ")
@@ -1568,10 +1574,14 @@ project.
 If PRJROOT is nil or 'current, then use the directory of the
 configuration file.
 
-If ROOT-SOURCES is nil, try to figure out root sources using TYPE.
+ROOT-SOURCES is a list of TS source files. If ROOT-SOURCES is
+nil, try to figure out root sources using TYPE.
 
 TYPE is a way to automatically figure out root-sources, the
 following types are supported: 
+
+'tsconfig: Project configuration \"tsconfig.json\" is present, no
+need for Emacs to set up any configuration for TSS.
 
 'gulp: assume tools/typings/typescriptApp.d.ts is the definition
 TS reference files for this project. All other \".d.ts\" files
@@ -1591,13 +1601,15 @@ ROOT-SOURCES can be relative to PRJROOT, which itself needs to be
                        (file-name-directory load-file-name)
                      ;; evaluate directly
                      (expand-file-name default-directory)))
-                  ((pred #'file-exists-p)
+                  ((pred file-exists-p)
                    (expand-file-name prjroot))
                   (_ (error "'%s' is NOT a valid project root." prjroot))))
 
   (setq root-sources
         (or root-sources
             (pcase type
+              (`tsconfig
+               t)
               (`gulp
                (directory-files (expand-file-name (f-join "tools" "typings") prjroot)
                                 t "\\.d\\.ts$"))
@@ -1608,8 +1620,9 @@ ROOT-SOURCES can be relative to PRJROOT, which itself needs to be
 
   (puthash name (list prjroot
                       ;; root sources
-                      (loop for path in root-sources
-                            collect (expand-file-name path prjroot)))
+                      (or (eq root-sources t)
+                          (loop for path in root-sources
+                                collect (expand-file-name path prjroot))))
            tss--project-root-sources-table)
   name)
 
@@ -1630,7 +1643,6 @@ associated with this buffer.")
               (_
                (propertize tss-str 'face 'error))))
       (setq tss--status-mode-line-str (s-concat "[" tss-str "] ")))))
-
 
 ;;;###autoload
 (defun tss-setup-current-buffer ()
