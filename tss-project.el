@@ -8,6 +8,9 @@
 ;;; - [ ] Integrated with `projectile', which is a popular package supports a lot project-wide
 ;;; facilities.
 
+(defclass tss-project/class (tss-client)
+  ()
+  "TSS client class for tsconfig project.")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: Project

@@ -3,25 +3,38 @@
 ;;; Here common attributes and methods are defined.
 ;;;
 
-(defvar-local tss-client--proc nil
-  "Current TSS process for project.")
+(require 'eieio)
 
-;;; local variables for parsing/storing TSS service messages {{
-;;
-;; TODO using EIEIO, we can create a new object to hold these data instead of a
-;; flat project object.
-(defvar-local tss-client--last-send-string-failed-p nil)
+(defvar-local tss-client nil
+  "Reference to an `tss-client' object.")
 
-(defvar-local tss-client--current-active-p t)
+(defclass tss-client/class ()
+  ((proc :type process
+         :documentation "Current TSS process for the client.")
+   ;; communication part
+   (server-response :type string
+                    :documentation "*Complete* TSS response.")
+   (incomplete-server-response :type string
+                               :documentation "Incomplete/intermediate TSS response.")
+   ;; TODO still needed?
+   (last-send-string-failed-p :documentation "TODO seems to be a indicator")
+   (current-active-p :documentation "TODO whether TSS has been setup"))
+  :abstract t
+  :documentation
+  "Abstract base class for all TSS clients, e.g. files, various
+  project types and etc. This is the interface `tss-manager' will
+  see.")
 
-(defvar-local tss-client--server-response nil
-  "Main variable for storing TSS response. Though this is
-buffer-local var, for project files only the ones set in project
-buffer are meaningful.")
+;;;: Static Methods
+;; (fmakunbound 'tss-client/applicable?)
+(defgeneric tss-client/applicable? ((class tss-client/class) file-buf)
+  "A STATIC method. Check whether client type CLASS is applicable
+to FILE-BUF. In case of a project, this is just whether the file
+is contained by this project.")
 
-(defvar-local tss-client--incomplete-server-response ""
-  "Intermediate response content. see `tss-client--server-response' for
-more info.")
+;;;: Object Methods
+(defgeneric tss-client/contains? ((this tss-client/class) file-buf)
+  "Check whether THIS contains FILE-BUF.")
 
 ;; TODO the following two are bad naming, which I believe is a problem with TSS.
 ;; TODO the official tsserver has sanitized JSON response

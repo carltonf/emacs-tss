@@ -1,29 +1,59 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;: Project Manager:  for project and file
-;;; - Manage all existing projects
+;;;: Project Manager:
+;;;
+;;; Serve as the entry for `tss' for internal code, client manager and the glue
+;;; between `tss-client' and `tss-comm'.
+;;; 
+;;; Responsibilities:
+;;; - Manage all registered client types
+;;; - Manage all existing clients
+;;; - Identify&Create the right client type of new buffer.
 ;;; - Responsible for starting/stopping TSS service.
 
 (require 'tss-project)
 (require 'tss-file)
 (require 'tss-comm)
 
-(defvar tss-manager--project-list '()
-  "A list of project objects, i.e. project buffers.")
+(defvar tss-manager/client-list ()
+  "A global list of all `tss-client'.")
+
+
+(defvar tss-manager/registered-client-types '(tss-project/class
+                                              tss-file/class)
+  "A list of registered client class. The order of different
+clients are predefined as it affects the type of client will be
+used for a buffer.")
+
+;;;#NO-TEST
+(defun tss-manager/initialize ()
+  "Initialize `tss-manager'"
+  (warn "tss-manager/initialize: doing nothing yet."))
+
+;;;#NO-TEST
+(defun tss-manager/setup-buffer (file-buf)
+  "Main entry for `tss-manager'. Setup TSS for FILE-BUF."
+  (let ((client (tss-manager/client-loaded? file-buf)))
+    (if client
+        (tss-manager/configure-buffer client file-buf)
+      (let* ((client-class (tss-manager/get-client-class file-buf))
+             (client (make-instance client-class initargs)))
+        ;; TODO prepare client for communication
+        ))))
+
+;;;#NO-TEST
+(defun tss-manager/client-loaded? (file-buf)
+  "Check whether there is an alive client for FILE-BUF. Return
+the client if found, o/w nil."
+  (loop for client in tss-manager/client-list
+        when (tss-client/contains? client file-buf)
+        return client))
+
 
 (defsubst tss-manager--containing-project-loaded? (fpath)
   "Check whether a loaded project in `tss-manager--project-list'
 contains FPATH, if so returns this project."
-  (loop for p in tss-manager--project-list
-        when (tss-project--contains? p fpath)
-        return p))
+  )
 
-;;;#NO-TEST
-(defun tss-manager--setup-buffer (file-buf)
-  "Main entry for `tss-manager'. Setup TSS for FILE-BUF."
-  (let ((project (tss-manager--get-project-create file-buf)))
-    (if project
-        (tss-manager--setup-project project)
-      (tss-manager--setup-file file-buf))))
 
 ;;;#NO-TEST
 (defun tss-manager--setup-project (project)
