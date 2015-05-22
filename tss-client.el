@@ -9,7 +9,11 @@
   "Reference to an `tss-client' object.")
 
 (defclass tss-client/class ()
-  ((proc :type process
+  ((buffer :initarg :buffer
+           :type buffer
+           :documentation "Start buffer when creating a new tss-client object.")
+
+   (proc :type process
          :documentation "Current TSS process for the client.")
    ;; communication part
    (server-response :type string
@@ -34,7 +38,7 @@ is contained by this project.")
 
 ;;;: Object Methods
 (defgeneric tss-client/contains? ((this tss-client/class) file-buf)
-  "Check whether THIS contains FILE-BUF.")
+  "Check whether THIS client contains FILE-BUF.")
 
 ;; TODO the following two are bad naming, which I believe is a problem with TSS.
 ;; TODO the official tsserver has sanitized JSON response

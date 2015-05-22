@@ -1568,8 +1568,7 @@ associated with this buffer.")
   ;; Activate auto-complete and setup TSS automatically when open tss-enable-modes buffer.
   (loop for mode in tss-enable-modes
         for hook = (intern-soft (concat (symbol-name mode) "-hook"))
-        if (and hook
-                (symbolp hook))
+        when hook
         do (add-hook hook 'tss-setup-current-buffer t))
   ;; Run flymake when save buffer.
   (add-to-list 'flymake-err-line-patterns '("\\`\\(.+?\\.ts\\) (\\([0-9]+\\),\\([0-9]+\\)): \\(.+\\)" 1 2 3 4))
@@ -1581,6 +1580,23 @@ associated with this buffer.")
     (setq tss-idle-task-timer
           (run-with-idle-timer tss-idle-task-idle-interval
                                t #'tss-idle-task))))
+
+(defun tss-global-diable ()
+  (cancel-timer tss-idle-task-timer)
+  (setq tss-idle-task-timer nil)
+
+  (setq mode-line-modes (delete '(t tss--status-mode-line-str)
+                                mode-line-modes))
+
+  (remove-hook 'after-save-hook 'tss-run-flymake)
+
+  ;; TODO flymake pattern can be preserved?
+  ;; TODO design a hook-like system for 3rd party to hook up
+  ;; 3rd libraries
+  (remove-hook 'typescript-mode-hook 'tss-setup-current-buffer)
+
+  ;; extra stuff
+  (setq company-backends (delq 'company-tss company-backends)))
 
 
 (provide 'tss)

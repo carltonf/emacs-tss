@@ -36,23 +36,15 @@ used for a buffer.")
     (if client
         (tss-manager/configure-buffer client file-buf)
       (let* ((client-class (tss-manager/get-client-class file-buf))
-             (client (make-instance client-class initargs)))
-        ;; TODO prepare client for communication
-        ))))
+             (client (make-instance client-class *initargs*)))
+        (tss-client/connect client)))))
 
-;;;#NO-TEST
 (defun tss-manager/client-loaded? (file-buf)
   "Check whether there is an alive client for FILE-BUF. Return
 the client if found, o/w nil."
   (loop for client in tss-manager/client-list
         when (tss-client/contains? client file-buf)
         return client))
-
-
-(defsubst tss-manager--containing-project-loaded? (fpath)
-  "Check whether a loaded project in `tss-manager--project-list'
-contains FPATH, if so returns this project."
-  )
 
 
 ;;;#NO-TEST
