@@ -6,7 +6,7 @@
 ;;; 
 ;;; Responsibilities:
 ;;; - Manage all registered client types
-;;; - Manage all existing clients
+;;; - Manage all existing clients and their life cycle, see `tss-client' for detail.
 ;;; - Identify&Create the right client type of new buffer.
 ;;; - Responsible for starting/stopping TSS service.
 
@@ -18,8 +18,8 @@
   "A global list of all `tss-client'.")
 
 
-(defvar tss-manager/registered-client-types '(tss-project/class
-                                              tss-file/class)
+(defvar tss-manager/registered-client-classes '(tss-project/class
+                                                tss-file/class)
   "A list of registered client class. The order of different
 clients are predefined as it affects the type of client will be
 used for a buffer.")
@@ -33,11 +33,13 @@ used for a buffer.")
 (defun tss-manager/setup-buffer (file-buf)
   "Main entry for `tss-manager'. Setup TSS for FILE-BUF."
   (let ((client (tss-manager/client-loaded? file-buf)))
-    (if client
-        (tss-manager/configure-buffer client file-buf)
-      (let* ((client-class (tss-manager/get-client-class file-buf))
-             (client (make-instance client-class *initargs*)))
-        (tss-client/connect client)))))
+    (unless client
+      (let* ((client-class (tss-manager/get-client-class file-buf)))
+        (setq client (make-instance client-class :buffer file-buf))
+        (tss-client/contructor client)
+        (add-to-list tss-manager/client-list client)))
+    (tss-manager/configure-buffer client file-buf)
+    (tss-client/connect client)))
 
 (defun tss-manager/client-loaded? (file-buf)
   "Check whether there is an alive client for FILE-BUF. Return
@@ -46,6 +48,20 @@ the client if found, o/w nil."
         when (tss-client/contains? client file-buf)
         return client))
 
+;;;#NO-TEST
+(defun tss-manager/configure-buffer (client file-buf)
+  "Configure FILE-BUF with CLIENT"
+  (with-current-buffer file-buf
+    (setq tss-client client)))
+
+;;;#NO-TEST
+(defun tss-manager/get-client-class (file-buf)
+  "Get the client class that is applicable to FILE-BUF.
+See `tss-manager/registered-client-classes' for all possible
+classes. Return nil if no class can be used."
+  (loop for class in tss-manager/registered-client-classes
+        when (tss-client/applicable? class file-buf)
+        return class))
 
 ;;;#NO-TEST
 (defun tss-manager--setup-project (project)

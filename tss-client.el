@@ -1,7 +1,14 @@
 ;;;: Generic TSS Client
+;;; 
+;;; Abstract internal representation of a unit of TSS client.
 ;;; Various types of project and file are all subclass of TSS client
-;;; Here common attributes and methods are defined.
 ;;;
+;;; Life Cycle of a TSS client, managed by `tss-manager'
+;;; - Visiting a new file can lead to creation of a new client
+;;; - All "active" clients are enlisted in `tss-manager/client-list'.
+;;; - When `tss-client/active?' return false, `tss-client/destroy' should be
+;;;   called to clean up.
+;;; - Upon fatal errors or user request, `tss-manager' can destroy a client.
 
 (require 'eieio)
 
@@ -10,19 +17,30 @@
 
 (defclass tss-client/class ()
   ((buffer :initarg :buffer
+           :initform nil
            :type buffer
-           :documentation "Start buffer when creating a new tss-client object.")
-
+           :documentation "Start buffer passed in to initialize new tss-client objects.")
    (proc :type process
+         :initform nil
          :documentation "Current TSS process for the client.")
+   (type :type symbol
+         :initform nil
+         :documentation "TS file/project types, currently only 'file and 'tsconfig.")
+   ;; internal status for life cycle
+   (initp :type boolean
+          :initform nil
+          :documentation "Set by constructor to indicate a properly initialized object.")
    ;; communication part
    (server-response :type string
+                    :initform ""
                     :documentation "*Complete* TSS response.")
    (incomplete-server-response :type string
+                               :initform ""
                                :documentation "Incomplete/intermediate TSS response.")
    ;; TODO still needed?
    (last-send-string-failed-p :documentation "TODO seems to be a indicator")
    (current-active-p :documentation "TODO whether TSS has been setup"))
+  :allow-nil-initform t
   :abstract t
   :documentation
   "Abstract base class for all TSS clients, e.g. files, various
@@ -37,9 +55,24 @@ to FILE-BUF. In case of a project, this is just whether the file
 is contained by this project.")
 
 ;;;: Object Methods
+(defgeneric tss-client/contructor ((this tss-client/class))
+  "Constructor for `tss-client/class', should be called before
+any use of the objects.")
+
 (defgeneric tss-client/contains? ((this tss-client/class) file-buf)
   "Check whether THIS client contains FILE-BUF.")
 
+(defgeneric tss-client/connect ((this tss-client/class) file-buf)
+  "Connect to TSS.")
+
+(defgeneric tss-client/active? ((this tss-client/class))
+  "Check whether THIS is still active. If not, usually
+a `tss-client/destory' call is followed.")
+
+(defgeneric tss-client/destory ((this tss-client/class))
+  "Destroy THIS, clean up and free resources.")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; TODO the following two are bad naming, which I believe is a problem with TSS.
 ;; TODO the official tsserver has sanitized JSON response
 (defvar-local tss-client--json-response-start-char ""

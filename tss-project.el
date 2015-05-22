@@ -12,6 +12,12 @@
   ()
   "TSS client class for tsconfig project.")
 
+;;;#NO-TEST
+(defmethod tss-client/applicable? :static ((class tss-project/class) file-buf)
+  "Check whether a FILE-BUF belongs to a TSS project."
+  (warn "Not implemented yet")
+  nil)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: Project
 ;;; The data structure for each project.

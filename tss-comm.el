@@ -1,5 +1,22 @@
 ;;; TSS Communication: code that talks with TSS
 
+(defun tss-comm/start (client)
+  "Start a TSS service for CLIENT."
+  (let ((tss-bin (executable-find "tss"))
+        procnm cmdstr proc)
+    (unless tss-bin
+      (error "tss command not found"))
+    (with-slots (name type buffer) client
+      (pcase type
+        (`file
+         (setq procnm name
+               cmdstr (format "%s %s" tss-bin (buffer-file-name buffer))))
+        (`tsconfig
+         (setq procnm (format "tss-%s" tss-project--name)
+               cmdstr tss-bin))
+        (_ (error "Client type [%s] is NOT supported." type))))
+    proc))
+
 ;;;#NO-TEST
 (defun* tss-comm--connect (&key type client)
   "Connect to TSS service for CLIENT, an file or project buffer.
