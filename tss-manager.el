@@ -36,7 +36,7 @@ used for a buffer.")
     (unless client
       (let* ((client-class (tss-manager/get-client-class file-buf)))
         (setq client (make-instance client-class :buffer file-buf))
-        (tss-client/contructor client)
+        (tss-client/initialize client)
         (add-to-list tss-manager/client-list client)))
     (tss-manager/configure-buffer client file-buf)
     (tss-client/connect client)))

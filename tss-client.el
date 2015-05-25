@@ -20,9 +20,9 @@
            :initform nil
            :type buffer
            :documentation "Start buffer passed in to initialize new tss-client objects.")
-   (proc :type process
+   (comm :type tss-comm/class
          :initform nil
-         :documentation "Current TSS process for the client.")
+         :documentation "Current TSS communication object for the client.")
    (type :type symbol
          :initform nil
          :documentation "TS file/project types, currently only 'file and 'tsconfig.")
@@ -31,18 +31,7 @@
           :initform nil
           :documentation "Set by constructor to indicate a properly initialized object.")
    ;; communication part
-   (response :type string
-             :initform ""
-             :documentation "*Complete* TSS response, already parsed into list.")
-   (incomplete-response :type string
-                        :initform ""
-                        :documentation "Incomplete/intermediate TSS response, raw JSON string.")
-   (response-start-tag :type string
-                       :initform ""
-                       :documentation "Indicate the start of the response.")
-   (response-end-tag :type string
-                     :initform ""
-                     :documentation "Indicate the end of the response.")
+   
    ;; TODO still needed?
    (last-send-string-failed-p :documentation "TODO seems to be a indicator")
    (current-active-p :documentation "TODO whether TSS has been setup"))

@@ -15,7 +15,11 @@ before checks for other types of clients."
   t)
 
 ;;;: Object Methods
-(defmethod tss-client/contructor ((this tss-file/class)))
+;;;#+NO-TEST
+(defmethod tss-client/initialize ((this tss-file/class))
+  (with-slots (initp) this
+    ;; after everything has been properly setup
+    (setq initp t)))
 
 (defmethod tss-client/contains? ((this tss-file/class) file-buf)
   "Check whether THIS client is for FILE-BUF."
