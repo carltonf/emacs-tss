@@ -31,12 +31,18 @@
           :initform nil
           :documentation "Set by constructor to indicate a properly initialized object.")
    ;; communication part
-   (server-response :type string
-                    :initform ""
-                    :documentation "*Complete* TSS response.")
-   (incomplete-server-response :type string
-                               :initform ""
-                               :documentation "Incomplete/intermediate TSS response.")
+   (response :type string
+             :initform ""
+             :documentation "*Complete* TSS response, already parsed into list.")
+   (incomplete-response :type string
+                        :initform ""
+                        :documentation "Incomplete/intermediate TSS response, raw JSON string.")
+   (response-start-tag :type string
+                       :initform ""
+                       :documentation "Indicate the start of the response.")
+   (response-end-tag :type string
+                     :initform ""
+                     :documentation "Indicate the end of the response.")
    ;; TODO still needed?
    (last-send-string-failed-p :documentation "TODO seems to be a indicator")
    (current-active-p :documentation "TODO whether TSS has been setup"))
@@ -55,9 +61,9 @@ to FILE-BUF. In case of a project, this is just whether the file
 is contained by this project.")
 
 ;;;: Object Methods
-(defgeneric tss-client/contructor ((this tss-client/class))
-  "Constructor for `tss-client/class', should be called before
-any use of the objects.")
+(defgeneric tss-client/initialize ((this tss-client/class))
+  "Initialize objects of `tss-client/class', should be called
+before any use of the objects.")
 
 (defgeneric tss-client/contains? ((this tss-client/class) file-buf)
   "Check whether THIS client contains FILE-BUF.")
