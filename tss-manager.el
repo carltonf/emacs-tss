@@ -17,6 +17,16 @@
 (defvar tss-manager/client-list ()
   "A global list of all `tss-client'.")
 
+;;; TODO too specific, delegate to client.destroy
+;;;#NO-TEST
+(defun tss-manager/clean-all-clients ()
+  "Helper command to remove all clients, delete all
+communications."
+  (interactive)
+  (loop for proc in (process-list)
+      when (s-starts-with? "tss-" (process-name proc))
+      do (delete-process proc))
+  (setq tss-manager/client-list nil))
 
 (defvar tss-manager/registered-client-classes '(tss-project/class
                                                 tss-file/class)
@@ -32,14 +42,17 @@ used for a buffer.")
 ;;;#NO-TEST
 (defun tss-manager/setup-buffer (file-buf)
   "Main entry for `tss-manager'. Setup TSS for FILE-BUF."
-  (let ((client (tss-manager/client-loaded? file-buf)))
+  (let ((client (tss-manager/client-loaded? file-buf))
+        service)
     (unless client
       (let* ((client-class (tss-manager/get-client-class file-buf)))
-        (setq client (make-instance client-class :buffer file-buf))
+        (setq client (make-instance client-class :buffer file-buf)
+              ;; TODO need options to set what service to use
+              service (make-instance tss-tst/class :client client))
         (tss-client/initialize client)
-        (add-to-list tss-manager/client-list client)))
-    (tss-manager/configure-buffer client file-buf)
-    (tss-client/connect client)))
+        (tss-client/connect client service)
+        (add-to-list 'tss-manager/client-list client)))
+    (tss-manager/configure-buffer client file-buf)))
 
 (defun tss-manager/client-loaded? (file-buf)
   "Check whether there is an alive client for FILE-BUF. Return
@@ -54,7 +67,6 @@ the client if found, o/w nil."
   (with-current-buffer file-buf
     (setq tss-client client)))
 
-;;;#NO-TEST
 (defun tss-manager/get-client-class (file-buf)
   "Get the client class that is applicable to FILE-BUF.
 See `tss-manager/registered-client-classes' for all possible

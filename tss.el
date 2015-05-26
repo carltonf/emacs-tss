@@ -605,15 +605,6 @@ NOTE: INITIALIZEP only has message difference."
            (ignore-errors (backward-list))
            (= (point) (point-min))))))
 
-(defun tss--proc-sentinel (proc event)
-  "TSS process sentinel"
-  (message "TSS: %s had the event: %s" proc event)
-  ;; update mode line
-  ;; TODO: how to set all buffers within a project
-  ;; for now let's do it with a timer
-  (with-current-buffer (window-buffer)
-      (tss--set-status-mode-line-str)))
-
 (defun tss--receive-server-response (proc res)
   (tss--trace "Received server response.\n%s" res)
   (with-current-buffer (process-buffer proc)

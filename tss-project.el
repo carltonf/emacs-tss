@@ -8,9 +8,11 @@
 ;;; - [ ] Integrated with `projectile', which is a popular package supports a lot project-wide
 ;;; facilities.
 
-(defclass tss-project/class (tss-client)
-  ()
-  "TSS client class for tsconfig project.")
+; (fmakunbound 'tss-project/class)
+(defclass tss-project/class (tss-client/class)
+  ((type :type symbol
+         :initform 'tsconfig))
+  :documentation "TSS client class for tsconfig project.")
 
 ;;;#NO-TEST
 (defmethod tss-client/applicable? :static ((class tss-project/class) file-buf)

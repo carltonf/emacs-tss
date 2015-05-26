@@ -4,8 +4,8 @@
 
 (defclass tss-file/class (tss-client/class)
   ((type :type symbol
-         :initform 'file
-         :documentation "TS file type."))
+         :initform 'file))
+  :documentation
   "TSS client for single TypeScript source file.")
 
 ;;;: Static Methods
@@ -17,7 +17,9 @@ before checks for other types of clients."
 ;;;: Object Methods
 ;;;#+NO-TEST
 (defmethod tss-client/initialize ((this tss-file/class))
-  (with-slots (initp) this
+  (with-slots (name buffer initp) this
+    (unless (s-present? name)
+      (setq name (f-filename (buffer-file-name buffer))))
     ;; after everything has been properly setup
     (setq initp t)))
 
@@ -28,9 +30,10 @@ before checks for other types of clients."
 
 
 ;;;#NO-TEST
-(defmethod tss-client/connect ((this tss-file/class))
+(defmethod tss-client/connect ((this tss-file/class) service)
   "A new instance of TSS service always starts for `tss-file/class'"
-  (with-slots (proc) this
-   (setq proc (tss-comm/start this))))
+  (with-slots (comm) this
+    (setq comm service)
+    (tss-comm/start comm)))
 
 (provide 'tss-file)

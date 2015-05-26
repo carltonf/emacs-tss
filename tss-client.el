@@ -15,14 +15,23 @@
 (defvar-local tss-client nil
   "Reference to an `tss-client' object.")
 
+;; (fmakunbound 'tss-client/class)
 (defclass tss-client/class ()
-  ((buffer :initarg :buffer
-           :initform nil
+  ((name :initarg :name
+         :initform ""
+         :type string
+         :documentation "Client name. If not set, a name will be derived from `buffer'.")
+   (buffer :initarg :buffer
            :type buffer
            :documentation "Start buffer passed in to initialize new tss-client objects.")
    (comm :type tss-comm/class
-         :initform nil
          :documentation "Current TSS communication object for the client.")
+   (comm-sentinels :type list
+                   :initform nil
+                   :documentation
+                   "A list of callback functions that get called
+                   when COMM status changed. Callbacks will be
+                   passed with THIS object.")
    (type :type symbol
          :initform nil
          :documentation "TS file/project types, currently only 'file and 'tsconfig.")
@@ -30,12 +39,9 @@
    (initp :type boolean
           :initform nil
           :documentation "Set by constructor to indicate a properly initialized object.")
-   ;; communication part
-   
    ;; TODO still needed?
    (last-send-string-failed-p :documentation "TODO seems to be a indicator")
    (current-active-p :documentation "TODO whether TSS has been setup"))
-  :allow-nil-initform t
   :abstract t
   :documentation
   "Abstract base class for all TSS clients, e.g. files, various
