@@ -39,5 +39,8 @@ only STATUS field is defined."
 
 (defmethod tss-comm/destroy ((this tss-comm/class))
   "Destroy this communication, close up channels and free up
-resources and etc."
+resources and etc.
+
+Subclasses should call override and call this function in the
+last."
   (oset this status :inactive))

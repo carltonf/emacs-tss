@@ -7,6 +7,9 @@
    (incomplete-response :type string
                         :initform ""
                         :documentation "Incomplete/intermediate TSS response, raw JSON string.")
+   ;; WARNING: TSS response is NOT JSON actually, it's more like JavaScript data
+   ;; get inspected. For now, there are string, array and object. So here we
+   ;; need to set the start&end char to know what responses we are receiving.
    (response-start-tag :type string
                        :initform ""
                        :documentation "Indicate the start of the response.")

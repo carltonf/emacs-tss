@@ -50,7 +50,7 @@ used for a buffer.")
         (tss-client/initialize client)
         (tss-client/connect client service)
         (add-to-list 'tss-manager/client-list client)))
-    (tss-manager/configure-buffer client file-buf)))
+    (tss-client/configure-buffer client file-buf)))
 
 (defun tss-manager/client-loaded? (file-buf)
   "Check whether there is an alive client for FILE-BUF. Return
@@ -58,12 +58,6 @@ the client if found, o/w nil."
   (loop for client in tss-manager/client-list
         when (tss-client/contains? client file-buf)
         return client))
-
-;;;#NO-TEST
-(defun tss-manager/configure-buffer (client file-buf)
-  "Configure FILE-BUF with CLIENT"
-  (with-current-buffer file-buf
-    (setq tss-client client)))
 
 (defun tss-manager/get-client-class (file-buf)
   "Get the client class that is applicable to FILE-BUF.

@@ -23,7 +23,9 @@
          :documentation "Client name. If not set, a name will be derived from `buffer'.")
    (buffer :initarg :buffer
            :type buffer
-           :documentation "Start buffer passed in to initialize new tss-client objects.")
+           :documentation "Start buffer passed in to initialize
+           new tss-client objects. Might NOT be useful after the
+           initialization.")
    (comm :type tss-comm/class
          :documentation "Current TSS communication object for the client.")
    (comm-sentinels :type list
@@ -67,28 +69,21 @@ before any use of the objects.")
   "Connect to TSS.")
 
 (defgeneric tss-client/active? ((this tss-client/class))
-  "Check whether THIS is still active. If not, usually
-a `tss-client/destory' call is followed.")
+  "Check whether THIS client is still active. If not, usually a
+`tss-client/destory' call is followed.")
 
 (defgeneric tss-client/destory ((this tss-client/class))
-  "Destroy THIS, clean up and free resources.")
+  "Destroy THIS, clean up and free resources. In particular,
+configurations done to buffer in `tss-client/configure-buffer'
+should be undone.")
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; TODO the following two are bad naming, which I believe is a problem with TSS.
-;; TODO the official tsserver has sanitized JSON response
-(defvar-local tss-client--json-response-start-char ""
-  "Start character of response string, paired with `tss--json-response-end-char'.
+;;;#NO-TEST
+(defmethod tss-client/configure-buffer ((this tss-client/class) buffer)
+  "Configure BUFFER with regards to THIS client.
 
-WARNING: TSS response is NOT JSON actually, it's more like
-JavaScript data get inspected. For now, there are string, array
-and object. So here we need to set the start&end char to know
-what responses we are receiving.")
-
-(defvar-local tss-client--json-response-end-char ""
-  "End character of response string.
-See `tss--json-response-start-char' for more info.")
-
-;; }}
-
+If subclasses override this function and they should call this
+function in the last."
+  (with-current-buffer buffer
+    (setq tss-client this)))
 
 (provide 'tss-client)
