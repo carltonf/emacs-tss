@@ -17,15 +17,13 @@
 (defvar tss-manager/client-list ()
   "A global list of all `tss-client'.")
 
-;;; TODO too specific, delegate to client.destroy
 ;;;#NO-TEST
 (defun tss-manager/clean-all-clients ()
   "Helper command to remove all clients, delete all
 communications."
   (interactive)
-  (loop for proc in (process-list)
-      when (s-starts-with? "tss-" (process-name proc))
-      do (delete-process proc))
+  (loop for client in tss-manager/client-list
+        do (tss-client/destory client))
   (setq tss-manager/client-list nil))
 
 (defvar tss-manager/registered-client-classes '(tss-project/class

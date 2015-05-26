@@ -11,7 +11,7 @@
              :initform nil
              :documentation "Response, well parsed and formatted.")
    (status :type symbol
-           :initform 'inactive
+           :initform :inactive
            :documentation
            "Current status of the communication: 
              :active everything is ok.
@@ -36,3 +36,8 @@ only STATUS field is defined."
   (with-slots (client) this
     (loop for cb in (oref client comm-sentinels)
           do (funcall cb client))))
+
+(defmethod tss-comm/destroy ((this tss-comm/class))
+  "Destroy this communication, close up channels and free up
+resources and etc."
+  (oset this status :inactive))

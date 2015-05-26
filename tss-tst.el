@@ -160,6 +160,10 @@ other unify outputs in standard JSON format."
          (tss--debug "Got error response : %s" res)
          (tss--show-message "%s" res))))
 
+(defmethod tss-comm/destroy ((this tss-tst/class))
+  (delete-process (oref this proc))
+  (call-next-method))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: Static functions
 

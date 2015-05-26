@@ -36,4 +36,12 @@ before checks for other types of clients."
     (setq comm service)
     (tss-comm/start comm)))
 
+;;;#NO-TEST
+(defmethod tss-client/destory ((this tss-file/class))
+  (with-slots (comm buffer initp) this
+    (setq initp nil)
+    (tss-comm/destroy comm)
+    (with-current-buffer buffer
+      (setq tss-client nil))))
+
 (provide 'tss-file)
