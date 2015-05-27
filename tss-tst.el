@@ -23,7 +23,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: Implementing interface
 
-(defmethod tss-tst/get-cmdstr ((this tss-tst/class))
+(defmethod tss-tst/get-start-cmdstr ((this tss-tst/class))
   "Construct a command string to be used by
 `start-process-shell-command'."
   (let ((tss-bin (executable-find "tss"))
@@ -50,7 +50,7 @@
                  response-start-tag response-end-tag) this
       (setq client-name (oref client name)
             procnm (format "tss-%s" client-name)
-            cmdstr (tss-tst/get-cmdstr this))
+            cmdstr (tss-tst/get-start-cmdstr this))
       ;; start a process
       (setq proc (start-process-shell-command procnm nil cmdstr))
       ;; configure the proc
@@ -63,17 +63,36 @@
               response-start-tag ""
               response-end-tag "")
         (set-process-query-on-exit-flag proc nil)
-
         (set-process-filter proc #'tss-tst/receive-response-filter)
         (set-process-sentinel proc #'tss-tst/proc-sentinel)
 
-        ;; TODO 25 is magic, find a way to sanitize it.
-        (while (and (< waiti 25) (not response))
-          (accept-process-output proc 0.2 nil t)
-          (incf waiti))
+        (tss-tst/accept-response this)
+
         (when (eq response 'succeed)
           (message "TSS: Loaded '%s'." client-name))
         proc))))
+
+;;;#NO-TEST
+(defmethod tss-tst/accept-response ((this tss-tst/class) &optional timeout)
+  "Accept response from ts-tools. 
+
+TIMEOUT is the seconds to wait before return, default to 10 sec.
+Return response in the end, which is possibly nil.
+
+The algorithm is busy polling. To ensure the completeness of
+response, TIMEOUT is usually quite large, so it is sliced into
+multiple short intervals such that at each interval we can check
+whether a complete response has been received to return
+immediately."
+  ;; 0.2 is the trial-and-error magic
+  (let* ((slice 0.2)
+         (int-count (floor (/ (or timeout 10) slice))))
+    (with-slots (proc response) this
+      (while (and (> int-count 0)
+                  (null response))
+          (accept-process-output proc 0.2 nil t)
+          (decf int-count))
+      response)))
 
 ;;;#NO-TEST
 (defun tss-tst/proc-sentinel (proc event)
@@ -109,7 +128,7 @@ communication object."
   (let ((comm (process-get proc 'comm)))
     (tss-tst/receive-response comm proc res)))
 
-(defmethod tss-tst/receive-response ((this tss-tst/class) proc res)
+(defmethod tss-tst/receive-response ((this tss-tst/class) proc rawres)
   "Process filter for TSS.
 
 Output from processes can only get processed when Emacs becomes
@@ -123,7 +142,7 @@ other unify outputs in standard JSON format."
                response-end-tag) this
     (loop with endre = (rx-to-string `(and bol "\"" (or "loaded" "updated" "added")
                                            (+ space))) ;Note: quoted string within.
-          for line in (split-string (or res "") "[\r\n]+")
+          for line in (split-string (or rawres "") "[\r\n]+")
           if (s-equals? line "null")
           return (progn (message "TSS: Got null response")
                         (setq response 'null))
@@ -149,19 +168,20 @@ other unify outputs in standard JSON format."
                         (setq response 'succeed))
           ;; error for server
           if (string-match "\\`\"TSS +\\(.+\\)\"\\'" line)
-          do (tss-tst/handle-err-response (match-string-no-properties 1 line)))))
+          do (tss-tst/handle-err-response this rawres))))
 
 ;;; TODO know better about possible error conditions
 ;;;#+NO-TEST
 (defmethod tss-tst/handle-err-response ((this tss-tst/class) res)
-  (tss--trace "Handle error response : %s" res)
-  (cond ((string= res "closing")
-         nil)
-        ((string-match "\\`command syntax error:" res)
-         nil)
-        (t
-         (tss--debug "Got error response : %s" res)
-         (tss--show-message "%s" res))))
+  (warn res)
+  ;; (cond ((string= res "closing")
+  ;;        nil)
+  ;;       ((string-match "\\`command syntax error:" res)
+  ;;        nil)
+  ;;       (t
+  ;;        (tss--debug "Got error response : %s" res)
+  ;;        (tss--show-message "%s" res)))
+  )
 
 ;;;#NO-TEST
 (defmethod tss-comm/destroy ((this tss-tst/class))
@@ -181,22 +201,92 @@ other unify outputs in standard JSON format."
 https://github.com/clausreinke/typescript-tools for the complete
 list and docs.")
 
+
 ;;;#NO-TEST
-(defmethod tss-comm/command-inspect ((this tss-tst/class) cmd &optional cmdargs)
+(defmethod tss-comm/command-inspect ((this tss-tst/class) comm-cmds)
   "Interactive command to send arbitrary command to
-typescript-tools and display raw feedback. Mainly used for
-debugging/development.
+typescript-tools.
 
-If CMDARGS is set, it should be a full command argument list,
-which can be line number, current column (note that Emacs count
-column from 0, ts service starts from 1) or full file path and
-etc. Otherwise, generate these args according to `current-buffer'
-and `point'.")
+COMM-CMDS is a list, whose car should be one of
+`tss-tst/supported-cmds'."
+  (with-slots (response-start-tag
+               response-end-tag
+               response
+               client) this
+    (let* ((cbuf (oref client buffer))
+           (cmd (car comm-cmds))
+           cmdstr
+           (posarg (tss-tst/get-posarg cbuf))
+           (file (buffer-file-name cbuf)))
+      (pcase cmd
+        ((or "quickInfo" "definition" "references" "completions" "completions-brief")
+         (setq cmdstr (format "%s %s %s" cmd posarg file)))
+        ("navigationBarItems"
+         (setq cmdstr (format "%s %s" cmd file)))
+        ("navigateToItems"
+         (let ((item (symbol-at-point)))
+           (setq cmdstr (format "%s %s" cmd item))))
+        ((or "files" "showErrors")
+         (setq cmdstr (format "%s" cmd)))
+        ("reload"
+         (message "reload currently doesn't respond any meaningful response back."))
+        (_
+         (error "%s NOT supported yet ;P" cmd)))
+      ;; different commands have different delimiters
+      ;; TODO feels cumbersome. An adaptive receiver?
+      (pcase cmd
+        ((or "quickInfo" "definition" "completions" "completions-brief")
+         (setq response-start-tag "{"
+               response-end-tag "}"))
+        ((or "references" "navigationBarItems" "navigateToItems" "files" "showErrors")
+         (setq response-start-tag "["
+               response-end-tag "]"))
+        (_
+         (setq response-start-tag ""
+               response-end-tag "")))
 
-(defun tss-tst/cmd-inspect-display (cmd &optional cmdargs)
+      (tss-tst/send-accept this cmdstr)
+      response)))
+
+;;;#NO-TEST
+(defmethod tss-tst/send-accept ((this tss-tst/class) cmdstr)
+  "Helper method. Issuing most commands require this 'send-accept'.
+Return response."
+  (tss-tst/send-msg this cmdstr)
+  (tss-tst/accept-response this))
+
+;;;#NO-TEST
+(defmethod tss-comm/update-source ((this tss-tst/class)
+                                   source linecount path)
+  (let ((cmdstr (format "update %d %s" linecount path)))
+    (tss-tst/send-msg this cmdstr)
+    (with-slots (response
+                 incomplete-response
+                 response-start-tag
+                 response-end-tag) this
+      (setq response nil
+            incomplete-response ""
+            response-start-tag ""
+            response-end-tag "")
+      (tss-tst/send-msg this source))
+    (tss-tst/accept-response this)
+    (unless (eq (oref this response) 'succeed)
+      (warn "TSS: Fail to update source for '%s'." path))))
+
+;;;#NO-TEST
+(defmethod tss-tst/send-msg ((this tss-tst/class) msg)
+  "Send MSG to typescript tools instance and get the response.
+
+Usually MSG is command string, but it can also be update source and etc."
+  (with-slots (proc response) this
+    (setq response nil)
+    ;; TODO error handling
+    (process-send-string proc (concat msg "\n"))))
+
+;;;#NO-TEST
+(defun tss-tst/cmd-inspect-display (cmd)
   "ELisp interactive command wrapper around
-`tss-comm/command-inspect', using `tss-client' local variable in
-the buffer to retrieve the `tss-comm/class' object."
+`tss-comm/command-inspect', using `tss-client' local variable."
   (interactive (list
                 (progn
                   ;; TODO we need to check the status of `tss-client'
@@ -205,10 +295,8 @@ the buffer to retrieve the `tss-comm/class' object."
                   (completing-read "TS Command: "
                                    tss-tst/supported-cmds
                                    nil t))))
-  (let ((comm (oref tss-client comm))
-        (resp-display-bufnm "*TST CMD Inspect*"))
-    (pp-display-expression (tss-comm/command-inspect comm cmd cmdargs)
-                           resp-display-bufnm)))
+  (pp-display-expression (tss-client/comm-inspect tss-client (list cmd))
+                         "*TST CMD Inspect*"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: Static functions
@@ -234,5 +322,17 @@ the buffer to retrieve the `tss-comm/class' object."
       (= (point) (point-min))))
    ;; other situations?
    (t nil)))
+
+(defun tss-tst/get-posarg (buffer)
+  "Get position argument in the format '<line-num> <col-num>'.
+
+NOTE that Emacs count column from 0, but typescript tools expect
+column number from 1."
+  (with-current-buffer buffer
+    (save-restriction
+      (widen)
+      (format "%d %d"
+              (line-number-at-pos)
+              (1+ (- (point) (line-beginning-position)))))))
 
 (provide 'tss-tst)

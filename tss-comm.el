@@ -9,7 +9,7 @@
    ;; TODO we need spec for response format, refer to tsserver?
    (response :type (or list vector symbol)
              :initform nil
-             :documentation "Response, well parsed and formatted.")
+             :documentation "Last response received in parsed format.")
    (status :type symbol
            :initform :inactive
            :documentation
@@ -45,9 +45,15 @@ Subclasses should call override and call this function in the
 last."
   (oset this status :inactive))
 
-(defgeneric tss-comm/command-inspect ((this tss-comm/class) cmd &optional cmdargs)
-  "A method to send command and get raw response. Mainly a
-development tool.
+(defgeneric tss-comm/command-inspect ((this tss-comm/class) &rest comm-cmds)
+  "Send arbitrary command and return :response.
+Mainly a development tool.
 
-Subclasses should implement a Emacs interactive command to
+Subclasses should implement an Emacs interactive command to
 display the response.")
+
+(defgeneric tss-comm/update-source ((this tss-comm/class)
+                                    source linecount path)
+  "Update SOURCE with regards to LINECOUNT, PATH.
+
+Most other `tss-comm' methods relies on updated SOURCE.")

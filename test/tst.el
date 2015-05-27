@@ -73,3 +73,20 @@
          (tst (make-instance tss-tst/class :client client)))
     (should (string-match-p "^[^ \t]+tss$" 
                             (tss-tst/get-cmdstr tst)))))
+
+(ert-deftest get-posarg ()
+  (with-temp-buffer
+    (loop for num in (number-sequence 1 100)
+          do (insert (format "%4d" num))
+          when (zerop (% num 10))
+          do (insert "\n"))
+    (should (equal "11 1"
+                   (tss-tst/get-posarg (current-buffer))))
+    (save-excursion
+      (search-backward "45")
+      (should (equal "5 19"
+                     (tss-tst/get-posarg (current-buffer)))))
+    (save-excursion
+      (goto-char (point-min))
+      (should (equal "1 1"
+                     (tss-tst/get-posarg (current-buffer)))))))
