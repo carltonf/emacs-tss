@@ -163,9 +163,52 @@ other unify outputs in standard JSON format."
          (tss--debug "Got error response : %s" res)
          (tss--show-message "%s" res))))
 
+;;;#NO-TEST
 (defmethod tss-comm/destroy ((this tss-tst/class))
   (delete-process (oref this proc))
   (call-next-method))
+
+(defconst tss-tst/supported-cmds
+  '(;; <cmd> <line> <pos> <file>
+    "quickInfo" "definition" "references" "completions" "completions-brief"
+    ;; <cmd> <file>/<item>
+    "navigationBarItems" "navigateToItems"
+    ;; <cmd> (nochech)? <linecount> <file> [linecount lines of source text]
+    "update"
+    ;; <cmd>
+    "reload" "files" "showErrors" "quit")
+  "A list of supported commands of typescript-tools, see
+https://github.com/clausreinke/typescript-tools for the complete
+list and docs.")
+
+;;;#NO-TEST
+(defmethod tss-comm/command-inspect ((this tss-tst/class) cmd &optional cmdargs)
+  "Interactive command to send arbitrary command to
+typescript-tools and display raw feedback. Mainly used for
+debugging/development.
+
+If CMDARGS is set, it should be a full command argument list,
+which can be line number, current column (note that Emacs count
+column from 0, ts service starts from 1) or full file path and
+etc. Otherwise, generate these args according to `current-buffer'
+and `point'.")
+
+(defun tss-tst/cmd-inspect-display (cmd &optional cmdargs)
+  "ELisp interactive command wrapper around
+`tss-comm/command-inspect', using `tss-client' local variable in
+the buffer to retrieve the `tss-comm/class' object."
+  (interactive (list
+                (progn
+                  ;; TODO we need to check the status of `tss-client'
+                  (unless tss-client
+                    (error "TSS: No active tss-client found."))
+                  (completing-read "TS Command: "
+                                   tss-tst/supported-cmds
+                                   nil t))))
+  (let ((comm (oref tss-client comm))
+        (resp-display-bufnm "*TST CMD Inspect*"))
+    (pp-display-expression (tss-comm/command-inspect comm cmd cmdargs)
+                           resp-display-bufnm)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: Static functions
@@ -180,7 +223,9 @@ other unify outputs in standard JSON format."
    ;; normal case
    ((and (s-prefix? stag str)
          (s-suffix? etag str))
-    ;; TODO the following use of `json-mode' feels bad...
+    ;; TODO the following use of `json-mode' feels bad... possible alts:
+    ;; jsonlint, `flymake-json' and etc, maybe even the built in
+    ;; `json-readtable'?
     (with-temp-buffer
       (insert str)
       (json-mode)

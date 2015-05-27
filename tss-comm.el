@@ -44,3 +44,10 @@ resources and etc.
 Subclasses should call override and call this function in the
 last."
   (oset this status :inactive))
+
+(defgeneric tss-comm/command-inspect ((this tss-comm/class) cmd &optional cmdargs)
+  "A method to send command and get raw response. Mainly a
+development tool.
+
+Subclasses should implement a Emacs interactive command to
+display the response.")
