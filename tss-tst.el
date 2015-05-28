@@ -275,7 +275,7 @@ and etc."
       ;; string sent would result an error (TODO I consider this a bug in
       ;; ts-tools that should get fixed). So to avoid such an error, don't
       ;; append an extra newline.
-      (when (s-matches-p "[\n\C-m]$" msg)
+      (when (s-matches-p "[\n\C-m]\\'" msg)
         (setq extra-nl ""))
 
       ;; TODO error handling
