@@ -174,7 +174,7 @@ other unify outputs in standard JSON format."
 ;;; TODO know better about possible error conditions
 ;;;#+NO-TEST
 (defmethod tss-tst/handle-err-response ((this tss-tst/class) line res)
-  (warn "TST Handled Errors: %s -> %s" line res)
+  (warn "TST Handled Errors: [%s] in [%s]" line res)
   ;; (cond ((string= res "closing")
   ;;        nil)
   ;;       ((string-match "\\`command syntax error:" res)
@@ -264,22 +264,12 @@ NOTE: don't use this method on command that don't return output."
 
 Usually MSG is command string, but it can also be updated source
 and etc."
-  (let ((extra-nl "\n"))
-    (with-slots (proc response incomplete-response) this
-      (setq response nil
-            incomplete-response "")
-      ;; Work around a bug about newlines. In Emacs, if END is at the beginning
-      ;; of a line, `count-lines' won't count the line END is at and the
-      ;; returned source will contain `count-lines' newlines. However ts-tools
-      ;; update source line by line using newline as separator and a blank
-      ;; string sent would result an error (TODO I consider this a bug in
-      ;; ts-tools that should get fixed). So to avoid such an error, don't
-      ;; append an extra newline.
-      (when (s-matches-p "[\n\C-m]\\'" msg)
-        (setq extra-nl ""))
+  (with-slots (proc response incomplete-response) this
+    (setq response nil
+          incomplete-response "")
 
-      ;; TODO error handling
-      (process-send-string proc (concat msg extra-nl)))))
+    ;; TODO error handling
+    (process-send-string proc (concat msg "\n"))))
 
 ;;;#NO-TEST
 (defun tss-tst/cmd-inspect-display (cmd)
@@ -310,6 +300,14 @@ and etc."
 ;;;#NO-TEST
 (defmethod tss-comm/update-source ((this tss-tst/class)
                                    source linecount path)
+  ;; Work around a bug about ending blank line. In Emacs, if END is at the
+  ;; beginning of a line, `count-lines' won't count the line END is at. However
+  ;; ts-tools counts this blank line. A blank string sent would result an error
+  ;; (TODO I consider this a bug in ts-tools that should get fixed). So to avoid
+  ;; such an error, `incf' linecount.
+  (when (s-matches-p "[\n\C-m]\\'" source)
+    (incf linecount))
+
   (let ((cmdstr (format "update %d %s" linecount path)))
     ;; update doesn't output, don't accept
     (tss-tst/send-msg this cmdstr)
