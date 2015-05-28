@@ -331,6 +331,16 @@ and etc."
             response-end-tag "}")
       (tss-tst/send-accept this cmdstr))))
 
+(defmethod tss-comm/get-doc ((this tss-tst/class)
+                             line column fpath)
+  (let ((cmdstr (format "quickInfo %d %d %s"
+                        line (1+ column) fpath)))
+    (with-slots (response-start-tag
+                 response-end-tag) this
+      (setq response-start-tag "{"
+            response-end-tag "}")
+      (tss-tst/send-accept this cmdstr))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: Static functions
 

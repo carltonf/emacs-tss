@@ -77,6 +77,12 @@ Possibly throw errors, return t on success.")
 
 (defgeneric tss-comm/get-completions ((this tss-comm/class)
                                       line column fpath)
-  "Retrieve a list of completions at (LINE COLUMN) point in FPATH file.
+  "Retrieve a list of completions at point (LINE COLUMN) in FPATH file.
 
 See `tss-client/get-completions' for more details.")
+
+(defgeneric tss-comm/get-doc ((this tss-comm/class)
+                              line column fpath)
+  "Retrieve documentation at point (LINE COLUMN) in file FPATH.
+
+See `tss-client/get-doc' for more details.")

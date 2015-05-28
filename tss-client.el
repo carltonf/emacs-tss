@@ -128,9 +128,6 @@ buffer."
 ;;; needs to adjust for new use cases more often
 ;;;
 ;;;
-;;; TODO The format of returned result is not well defined, as we need to know
-;;; more about typescript spec to finalize them. For now the format is basically
-;;; the one returned by the `typescript-tools'.
 ;;;
 
 ;;;#NO-TEST
@@ -171,20 +168,9 @@ stateless queries."
 
 (defmethod tss-client/get-completions ((this tss-client/class)
                                        &optional line column)
-  "Get completions at specified point or current point. A list of
-completions with basic info is expected, there should be NO
-detailed info.
-
-If LINE and COLNUM are set, get completions at that position.
-Otherwise, completing at point. "
-;; Example of returned result:
-;; ((entries .
-;;           [((kindModifiers . <|public|private|...>)
-;;             (kind . <property|...>)
-;;             (name . <name>))
-;;            |...])
-;;  (isNewIdentifierLocation . :json-false)
-;;  (isMemberCompletion . t))
+  "Get completions at point (LINE COLUMN) or current point. A
+list of completions should only contain basic info, there should
+be NO detailed info."
   (with-current-buffer (oref this :buffer)
     (save-restriction
       (widen)
@@ -192,5 +178,16 @@ Otherwise, completing at point. "
             (column (or column (current-column))))
         (tss-comm/get-completions (oref this comm)
                                   line column (buffer-file-name))))))
+
+(defmethod tss-client/get-doc ((this tss-client/class)
+                               &optional line column)
+  "Get documentation on thing at (LINE COLUMN) or current point."
+  (with-current-buffer (oref this :buffer)
+    (save-restriction
+      (widen)
+      (let ((line (or line (line-number-at-pos)))
+            (column (or column (current-column))))
+        (tss-comm/get-doc (oref this comm)
+                          line column (buffer-file-name))))))
 
 (provide 'tss-client)

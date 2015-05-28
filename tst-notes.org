@@ -1,0 +1,15 @@
+Some notes on =typescript-tools=.
+
+* Bugs
+** TODO Empty string command yields error.
+** TODO Error report are too vague.
+e.g. out of file boundary error says nothing.
+
+* Format on the response
+
+** =definitions=
+=response.def.textSpan= doesn't seem to be meaningful, are they the char
+position with all whitespace squeezed?
+
+** =quickInfo=
+when =documentation= array is not empty?
