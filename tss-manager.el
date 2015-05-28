@@ -10,8 +10,10 @@
 ;;; - Identify&Create the right client type of new buffer.
 ;;; - Responsible for starting/stopping TSS service.
 
-(require 'tss-project)
+(require 'tss-client)
 (require 'tss-file)
+(require 'tss-project)
+
 (require 'tss-comm)
 
 (defvar tss-manager/client-list ()
@@ -68,41 +70,21 @@ classes. Return nil if no class can be used."
         return class))
 
 ;;;#NO-TEST
-(defun tss-manager--setup-project (project)
-  (with-current-buffer project
-    (unwind-protect
-        (setq tss-client--proc (tss-comm--start-proc :type 'tsconfig
-                                                      :client project))
-      (unless tss-client--proc
-        (error "Failed to start TSS for %s" project)))))
+(defun tss-manager/aliveness-test (buffer)
+  "Check whether TSS can function normal in BUFFER.
 
-(defun tss-manager--setup-file (file-buf)
-  (tss-file--init file-buf)
-  (with-current-buffer file-buf
-    (unwind-protect
-        (setq tss-client--proc (tss-comm--start-proc :type 'file
-                                                     :client file-buf))
-      (unless tss-client--proc
-        (error "Failed to start TSS for %s" file-buf)))))
-
-;;;#NO-TEST
-(defun tss-manager--get-project-create (file-buf)
-  "Get the project object for FILE-BUF. In case no project can be
-found, nil is returned."
-  (let ((fpath (buffer-file-name file-buf)))
-    (or (tss-manager--containing-project-loaded? fpath)
-        ;; try to create and load new project
-        (let ((prjroot (tss-project--locate-root fpath)))
-          (when prjroot
-            (tss-project--create prjroot))))))
-
-;;;#NO-TEST
-(defun tss-manager--activate-project (project)
-  "Start TSS service for the project."
-
-  (tss-manager--activate-project project)
-  (add-to-list 'tss-manager--project-list project)
-  project)
+Aliveness test should be done before using TSS API, this test is
+conducted following a chain:
+1. global status test at manager level
+2. local status, `tss--client' should be set in BUFFER
+3. Then `tss--client' -> `tss-comm'."
+  ;; global status checking
+  (and tss-manager/client-list
+       (tss-client/class-list-p tss-manager/client-list))
+  ;; local status checking
+  (with-current-buffer buffer
+    (and tss--client
+         (tss-client/active? tss--client))))
 
 
 (provide 'tss-manager)

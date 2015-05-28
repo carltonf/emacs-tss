@@ -30,6 +30,15 @@ before checks for other types of clients."
 
 
 ;;;#NO-TEST
+(defmethod tss-client/active? ((this tss-file/class))
+  (with-slots (initp buffer comm) this
+   (and initp
+        (and (bufferp buffer)
+             (buffer-live-p buffer))
+        (and (tss-comm/class-child-p comm)
+             (tss-comm/alive? comm)))))
+
+;;;#NO-TEST
 (defmethod tss-client/connect ((this tss-file/class) service)
   "A new instance of TSS service always starts for `tss-file/class'"
   (with-slots (comm) this
@@ -42,6 +51,6 @@ before checks for other types of clients."
     (setq initp nil)
     (tss-comm/destroy comm)
     (with-current-buffer buffer
-      (setq tss-client nil))))
+      (setq tss--client nil))))
 
 (provide 'tss-file)

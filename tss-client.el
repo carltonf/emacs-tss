@@ -1,5 +1,5 @@
 ;;;: Generic TSS Client
-;;; 
+;;;
 ;;; Abstract internal representation of a unit of TSS client.
 ;;; Various types of project and file are all subclass of TSS client
 ;;;
@@ -11,9 +11,6 @@
 ;;; - Upon fatal errors or user request, `tss-manager' can destroy a client.
 
 (require 'eieio)
-
-(defvar-local tss-client nil
-  "Reference to an `tss-client' object.")
 
 ;; (fmakunbound 'tss-client/class)
 (defclass tss-client/class ()
@@ -40,10 +37,7 @@
    ;; internal status for life cycle
    (initp :type boolean
           :initform nil
-          :documentation "Set by constructor to indicate a properly initialized object.")
-   ;; TODO still needed?
-   (last-send-string-failed-p :documentation "TODO seems to be a indicator")
-   (current-active-p :documentation "TODO whether TSS has been setup"))
+          :documentation "Set by constructor to indicate a properly initialized object."))
   :abstract t
   :documentation
   "Abstract base class for all TSS clients, e.g. files, various
@@ -84,14 +78,7 @@ should be undone.")
 If subclasses override this function and they should call this
 function in the last."
   (with-current-buffer buffer
-    (setq tss-client this)))
-
-;;;#NO-TEST
-(defmethod tss-client/update-buffer ((this tss-client/class))
-  "Update :buffer to `current-buffer'. Needed as various commands
-can only be done with regards to the `current-buffer'."
-  (when (tss-client/contains? this (current-buffer))
-    (oset this :buffer (current-buffer))))
+    (setq tss--client this)))
 
 ;;;#NO-TEST
 (defmethod tss-client/comm-inspect ((this tss-client/class) comm-cmds)
@@ -104,16 +91,57 @@ entry interactive command is defined per communication type.
 However no communication can be conducted without some preps or
 info supplied by `tss-client/class', so we internally need this
 method `tss-client/comm-inspect' as the inspection entry which
-later delegates real work to specific communication methods."
+later delegates real work to specific communication methods.
+
+As this is a development tool, abstraction layer is not well
+contained, e.g. `buffer' is usually not used by `tss-comm' but
+here `tss-comm/command-inspect' will extract info directly from
+buffer."
+  (tss-client/set-buffer this)
   (tss-client/sync-buffer-content this)
   (tss-comm/command-inspect (oref this comm) comm-cmds))
 
-;;;: Set of supported tss API
+;;;: Set of supported tss-client API
 ;;;
-;;; API for 3rd ELisp library to utilize TSS.
-;;; 
-;;; Usually 3rd party should not use these directly, they should use more
-;;; conventional API wrappers offered in `tss.el'.
+;;; API for 3rd ELisp library to utilize TSS. See notes below for usage
+;;; cautions.
+;;;
+;;; A normal flow of using the APIs:
+;;; 0. use `tss--active?' which calls `tss-client/active?' and some others
+;;; 1. `tss-client/set-buffer' set up buffer.
+;;; 2. `tss-client/sync-buffer-content' sync/update source.
+;;; 3. Prepare needed params, usually the default is sufficient.
+;;; 4. Call specific `tss-client' API.
+;;; 5. Retrieve response, extract info. Handle errors if any.
+;;;
+;;;
+;;; Usually 3rd party should use more API wrappers offered in `tss.el'. Only
+;;; when they need extra flexibility, the `tss-client' API is used.
+;;;
+;;; Notes on the two API sets: `tss.el' and `tss-client.el'
+;;; 1. `tss.el' expose the conventional ELisp style API: no need to pass EIEIO object.
+;;; 2. `tss.el' only deal with the most common use cases: the current buffer,
+;;; the current point and etc. AND there is no need to go through the "normal"
+;;; flow documented above.
+;;; 3. `tss-client.el' tries to attain maximum flexibility.
+;;; 4. `tss.el' is considered more stable than `tss-client.el', as the latter
+;;; needs to adjust for new use cases more often
+;;;
+;;;
+;;; TODO The format of returned result is not well defined, as we need to know
+;;; more about typescript spec to finalize them. For now the format is basically
+;;; the one returned by the `typescript-tools'.
+;;;
+
+;;;#NO-TEST
+(defmethod tss-client/set-buffer ((this tss-client/class) &optional buffer)
+  "Update :buffer to BUFFER or `current-buffer' if BUFFER is nil.
+Needed as various commands can only be done with regards to the
+`current-buffer'."
+  (let ((buf (or buffer (current-buffer))) )
+    (when (tss-client/contains? this buf)
+      (oset this :buffer buf))))
+
 ;;;#NO-TEST
 (defmethod tss-client/sync-buffer-content ((this tss-client/class)
                                            &optional source linecount path)
@@ -131,7 +159,6 @@ client should call this method before issuing commands to `comm'.
 
 TODO I think these are needed because the ts service only support
 stateless queries."
-  (tss-client/update-buffer this)
   (with-current-buffer (oref this buffer)
     (save-restriction
       (widen)
@@ -141,5 +168,29 @@ stateless queries."
                             (count-lines (point-min) (point-max))))
              (path (or path (buffer-file-name))))
         (tss-comm/update-source (oref this comm) source linecount path)))))
+
+(defmethod tss-client/get-completions ((this tss-client/class)
+                                       &optional line column)
+  "Get completions at specified point or current point. A list of
+completions with basic info is expected, there should be NO
+detailed info.
+
+If LINE and COLNUM are set, get completions at that position.
+Otherwise, completing at point. "
+;; Example of returned result:
+;; ((entries .
+;;           [((kindModifiers . <|public|private|...>)
+;;             (kind . <property|...>)
+;;             (name . <name>))
+;;            |...])
+;;  (isNewIdentifierLocation . :json-false)
+;;  (isMemberCompletion . t))
+  (with-current-buffer (oref this :buffer)
+    (save-restriction
+      (widen)
+      (let ((line (or line (line-number-at-pos)))
+            (column (or column (current-column))))
+        (tss-comm/get-completions (oref this comm)
+                                  line column (buffer-file-name))))))
 
 (provide 'tss-client)

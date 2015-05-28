@@ -46,7 +46,7 @@
         (process-connection-type nil)
         (waiti 0))
     ;; prepare process
-    (with-slots (client proc response incomplete-response
+    (with-slots (client status proc response incomplete-response
                  response-start-tag response-end-tag) this
       (setq client-name (oref client name)
             procnm (format "tss-%s" client-name)
@@ -69,12 +69,13 @@
         (tss-tst/accept-response this)
 
         (when (eq response 'succeed)
+          (setq status :active)
           (message "TSS: Loaded '%s'." client-name))
         proc))))
 
 ;;;#NO-TEST
 (defmethod tss-tst/accept-response ((this tss-tst/class) &optional timeout)
-  "Accept response from ts-tools. 
+  "Accept response from ts-tools.
 
 TIMEOUT is the seconds to wait before return, default to 10 sec.
 Return response in the end, which is possibly nil.
@@ -168,12 +169,12 @@ other unify outputs in standard JSON format."
                         (setq response 'succeed))
           ;; error for server
           if (string-match "\\`\"TSS +\\(.+\\)\"\\'" line)
-          do (tss-tst/handle-err-response this rawres))))
+          do (tss-tst/handle-err-response this line rawres))))
 
 ;;; TODO know better about possible error conditions
 ;;;#+NO-TEST
-(defmethod tss-tst/handle-err-response ((this tss-tst/class) res)
-  (warn res)
+(defmethod tss-tst/handle-err-response ((this tss-tst/class) line res)
+  (warn "TST Handled Errors: %s -> %s" line res)
   ;; (cond ((string= res "closing")
   ;;        nil)
   ;;       ((string-match "\\`command syntax error:" res)
@@ -249,39 +250,36 @@ COMM-CMDS is a list, whose car should be one of
       response)))
 
 ;;;#NO-TEST
-(defmethod tss-tst/send-accept ((this tss-tst/class) cmdstr)
-  "Helper method. Issuing most commands require this 'send-accept'.
-Return response."
-  (tss-tst/send-msg this cmdstr)
-  (tss-tst/accept-response this))
+(defmethod tss-tst/send-accept ((this tss-tst/class) msg)
+  "Helper method. Issuing most commands require clearing response and this 'send-accept' steps.
+Return response.
 
-;;;#NO-TEST
-(defmethod tss-comm/update-source ((this tss-tst/class)
-                                   source linecount path)
-  (let ((cmdstr (format "update %d %s" linecount path)))
-    (tss-tst/send-msg this cmdstr)
-    (with-slots (response
-                 incomplete-response
-                 response-start-tag
-                 response-end-tag) this
-      (setq response nil
-            incomplete-response ""
-            response-start-tag ""
-            response-end-tag "")
-      (tss-tst/send-msg this source))
-    (tss-tst/accept-response this)
-    (unless (eq (oref this response) 'succeed)
-      (warn "TSS: Fail to update source for '%s'." path))))
+NOTE: don't use this method on command that don't return output."
+  (tss-tst/send-msg this msg)
+  (tss-tst/accept-response this))
 
 ;;;#NO-TEST
 (defmethod tss-tst/send-msg ((this tss-tst/class) msg)
   "Send MSG to typescript tools instance and get the response.
 
-Usually MSG is command string, but it can also be update source and etc."
-  (with-slots (proc response) this
-    (setq response nil)
-    ;; TODO error handling
-    (process-send-string proc (concat msg "\n"))))
+Usually MSG is command string, but it can also be updated source
+and etc."
+  (let ((extra-nl "\n"))
+    (with-slots (proc response incomplete-response) this
+      (setq response nil
+            incomplete-response "")
+      ;; Work around a bug about newlines. In Emacs, if END is at the beginning
+      ;; of a line, `count-lines' won't count the line END is at and the
+      ;; returned source will contain `count-lines' newlines. However ts-tools
+      ;; update source line by line using newline as separator and a blank
+      ;; string sent would result an error (TODO I consider this a bug in
+      ;; ts-tools that should get fixed). So to avoid such an error, don't
+      ;; append an extra newline.
+      (when (s-matches-p "[\n\C-m]$" msg)
+        (setq extra-nl ""))
+
+      ;; TODO error handling
+      (process-send-string proc (concat msg extra-nl)))))
 
 ;;;#NO-TEST
 (defun tss-tst/cmd-inspect-display (cmd)
@@ -295,8 +293,45 @@ Usually MSG is command string, but it can also be update source and etc."
                   (completing-read "TS Command: "
                                    tss-tst/supported-cmds
                                    nil t))))
-  (pp-display-expression (tss-client/comm-inspect tss-client (list cmd))
+  (pp-display-expression (tss-client/comm-inspect tss--client (list cmd))
                          "*TST CMD Inspect*"))
+
+;;;: API implementations
+;;;#NO-TEST
+(defmethod tss-comm/alive? ((this tss-tst/class))
+  (with-slots (client proc status) this
+    (and (tss-client/class-child-p client) ;DO NOT CHECK client aliveness!
+         (eq status :active)
+         ;; process checking (just for safety)
+         proc
+         (processp proc)
+         (eq (process-status proc) 'run))))
+
+;;;#NO-TEST
+(defmethod tss-comm/update-source ((this tss-tst/class)
+                                   source linecount path)
+  (let ((cmdstr (format "update %d %s" linecount path)))
+    ;; update doesn't output, don't accept
+    (tss-tst/send-msg this cmdstr)
+    (with-slots (response-start-tag
+                 response-end-tag) this
+      (setq response-start-tag ""
+            response-end-tag ""))
+
+    (tss-tst/send-accept this source)
+    (unless (eq (oref this response) 'succeed)
+      (warn "TSS: Fail to update source for '%s'." path))))
+
+(defmethod tss-comm/get-completions ((this tss-tst/class)
+                                     line column fpath)
+  ;; in 'tst', "completions" command return a lot extra details
+  (let ((cmdstr (format "completions-brief %d %d %s"
+                        line (1+ column) fpath)))
+    (with-slots (response-start-tag
+                 response-end-tag) this
+      (setq response-start-tag "{"
+            response-end-tag "}")
+      (tss-tst/send-accept this cmdstr))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;: Static functions

@@ -13,7 +13,7 @@
    (status :type symbol
            :initform :inactive
            :documentation
-           "Current status of the communication: 
+           "Current status of the communication:
              :active everything is ok.
              :inactive communication is down."))
   :abstract t
@@ -52,8 +52,31 @@ Mainly a development tool.
 Subclasses should implement an Emacs interactive command to
 display the response.")
 
+;;;: Common Service API
+;;;
+;;; Define what info language service should supply. Middle between specific
+;;; language service and `tss-client'.
+;;;
+;;; Each one has specification on parameter list and the format of returned
+;;; result.
+;;;
+(defgeneric tss-comm/alive? ((this tss-comm/class))
+  "Check whether this communication channel is still alive.
+
+Usually the method is called by correspondent aliveness test
+method in `tss-client/class', so here we should NOT check the
+aliveness of `client' (o/w, a loop might occur). ")
+
 (defgeneric tss-comm/update-source ((this tss-comm/class)
                                     source linecount path)
   "Update SOURCE with regards to LINECOUNT, PATH.
 
-Most other `tss-comm' methods relies on updated SOURCE.")
+Most other `tss-comm' methods relies on updated SOURCE.
+
+Possibly throw errors, return t on success.")
+
+(defgeneric tss-comm/get-completions ((this tss-comm/class)
+                                      line column fpath)
+  "Retrieve a list of completions at (LINE COLUMN) point in FPATH file.
+
+See `tss-client/get-completions' for more details.")
