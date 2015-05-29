@@ -69,6 +69,7 @@ classes. Return nil if no class can be used."
         when (tss-client/applicable? class file-buf)
         return class))
 
+;;; TODO better report on which part fails the test
 ;;;#NO-TEST
 (defun tss-manager/aliveness-test (buffer)
   "Check whether TSS can function normal in BUFFER.
@@ -79,12 +80,13 @@ conducted following a chain:
 2. local status, `tss--client' should be set in BUFFER
 3. Then `tss--client' -> `tss-comm'."
   ;; global status checking
-  (and tss-manager/client-list
-       (tss-client/class-list-p tss-manager/client-list))
-  ;; local status checking
-  (with-current-buffer buffer
-    (and tss--client
-         (tss-client/active? tss--client))))
+  (and (and
+        tss-manager/client-list
+        (tss-client/class-list-p tss-manager/client-list))
+       ;; local status checking
+       (with-current-buffer buffer
+         (and tss--client
+              (tss-client/active? tss--client)))))
 
 
 (provide 'tss-manager)

@@ -85,8 +85,8 @@ response, TIMEOUT is usually quite large, so it is sliced into
 multiple short intervals such that at each interval we can check
 whether a complete response has been received to return
 immediately."
-  ;; 0.2 is the trial-and-error magic
-  (let* ((slice 0.2)
+  ;; 0.25 is the trial-and-error magic
+  (let* ((slice 0.25)
          (int-count (floor (/ (or timeout 10) slice))))
     (with-slots (proc response) this
       (while (and (> int-count 0)
@@ -346,6 +346,14 @@ and etc."
                  response-end-tag) this
       (setq response-start-tag "{"
             response-end-tag "}")
+      (tss-tst/send-accept this cmdstr))))
+
+(defmethod tss-comm/get-errors ((this tss-tst/class))
+  (let ((cmdstr (format "showErrors")))
+    (with-slots (response-start-tag
+                 response-end-tag) this
+      (setq response-start-tag "["
+            response-end-tag "]")
       (tss-tst/send-accept this cmdstr))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

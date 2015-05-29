@@ -86,3 +86,6 @@ See `tss-client/get-completions' for more details.")
   "Retrieve documentation at point (LINE COLUMN) in file FPATH.
 
 See `tss-client/get-doc' for more details.")
+
+(defgeneric tss-comm/get-errors ((this tss-comm/class))
+  "Retrieve errors.")

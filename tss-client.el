@@ -139,6 +139,12 @@ Needed as various commands can only be done with regards to the
     (when (tss-client/contains? this buf)
       (oset this :buffer buf))))
 
+;;; TODO non-optimized and not well-scaled.
+;;; 1. Projects have multiple buffers not a single buffer
+;;; 2. Use timestamps to only sync updated buffers.
+;;; 3. Make the return value indicate whether a sync has happened, some methods
+;;; are time-consuming and should not run if no content updates.
+;;; 4. Change the name and delegate the work to client.
 ;;;#NO-TEST
 (defmethod tss-client/sync-buffer-content ((this tss-client/class)
                                            &optional source linecount)
@@ -188,5 +194,11 @@ be NO detailed info."
             (column (or column (current-column))))
         (tss-comm/get-doc (oref this comm)
                           line column (buffer-file-name))))))
+
+;;; TODO incomplete, need error caching, actually we need general API caching to
+;;; optimize and implement async functionality.
+(defmethod tss-client/get-errors ((this tss-client/class))
+  "Retrieve errors about THIS client."
+  (tss-comm/get-errors (oref this comm)))
 
 (provide 'tss-client)
