@@ -20,11 +20,15 @@
   (interactive)
   (tss-manager/setup-buffer (current-buffer)))
 
-(defun tss--active-test ()
-  "Check whether tss has been set up properly in the current buffer.
+(defun tss--active? ()
+  "Check whether tss has been set up properly in the current
+buffer."
+  (tss-manager/aliveness-test (current-buffer)))
 
-If the test fails, throw an error to prevent any other actions."
-  (unless (tss-manager/aliveness-test (current-buffer))
+(defun tss--active-test ()
+  "Same as `tss--active?' but if the test fails, throw an error
+to prevent any other actions."
+  (unless (tss--active?)
     (error "TSS is not properly set up.")))
 
 ;;; TODO The format of returned result is not well defined, as we need to know
@@ -33,7 +37,7 @@ If the test fails, throw an error to prevent any other actions."
 
 (defun tss--get-completions ()
   "Get a list of completions at current point in the current
-buffer.
+buffer. nil if none is found.
 
   Example of returned result:
   ((entries .
