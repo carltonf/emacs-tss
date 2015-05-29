@@ -320,6 +320,7 @@ and etc."
     (unless (eq (oref this response) 'succeed)
       (warn "TSS: Fail to update source for '%s'." path))))
 
+;;;#NO-TEST
 (defmethod tss-comm/get-completions ((this tss-tst/class)
                                      line column fpath)
   ;; in 'tst', "completions" command return a lot extra details

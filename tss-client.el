@@ -141,15 +141,15 @@ Needed as various commands can only be done with regards to the
 
 ;;;#NO-TEST
 (defmethod tss-client/sync-buffer-content ((this tss-client/class)
-                                           &optional source linecount path)
+                                           &optional source linecount)
   "Sync buffer content with ts service. By default file path, content,
 line count are retrieved from `current-buffer'.
 
-Optional arguments SOURCE, LINECOUNT, PATH are supplied to allow
-extra flexibility in updating the source. These are useful when
-you are doing completing/templating when the needed changes are
-not even in buffer yet, but you still want to get some info about
-these supposed changes (like definition/quickInfo and etc.).
+Optional arguments SOURCE, LINECOUNT are supplied to allow extra
+flexibility in updating the source. These are useful when you are
+doing completing/templating when the needed changes are not even
+in buffer yet, but you still want to get some info about these
+supposed changes (like definition/quickInfo and etc.).
 
 Syncing content is `tss-client/class's responsibility. If needed,
 client should call this method before issuing commands to `comm'.
@@ -162,9 +162,8 @@ stateless queries."
       (let* ((source (or source
                          (buffer-substring-no-properties (point-min) (point-max))))
              (linecount (or linecount
-                            (count-lines (point-min) (point-max))))
-             (path (or path (buffer-file-name))))
-        (tss-comm/update-source (oref this comm) source linecount path)))))
+                            (count-lines (point-min) (point-max)))))
+        (tss-comm/update-source (oref this comm) source linecount (buffer-file-name))))))
 
 (defmethod tss-client/get-completions ((this tss-client/class)
                                        &optional line column)
