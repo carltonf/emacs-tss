@@ -326,10 +326,16 @@ and etc."
   (let ((cmdstr (format "completions-brief %d %d %s"
                         line (1+ column) fpath)))
     (with-slots (response-start-tag
-                 response-end-tag) this
+                 response-end-tag
+                 response) this
       (setq response-start-tag "{"
             response-end-tag "}")
-      (tss-tst/send-accept this cmdstr))))
+      (tss-tst/send-accept this cmdstr)
+      ;; for completions, `null' means no completions and thus should be nil.
+      (when (eq response 'null)
+        (setq response nil))
+      ;; make sure to return response
+      response)))
 
 (defmethod tss-comm/get-doc ((this tss-tst/class)
                              line column fpath)
