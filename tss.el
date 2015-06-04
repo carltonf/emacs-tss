@@ -54,7 +54,7 @@ See `tss-client/get-completions' for details."
   (let ((client tss--client)
         (cbuf (current-buffer)))
     (tss-client/set-buffer client cbuf)
-    (tss-client/sync-buffer-content client)
+    (tss-client/sync-sources client)
     (tss-client/get-completions client)))
 
 (defun tss--get-doc-at-point ()
@@ -75,7 +75,7 @@ See `tss-client/get-doc'"
   (let ((client tss--client)
         (cbuf (current-buffer)))
     (tss-client/set-buffer client cbuf)
-    (tss-client/sync-buffer-content client)
+    (tss-client/sync-sources client)
     (tss-client/get-doc client)))
 
 (defun tss--get-errors ()
@@ -110,7 +110,7 @@ Example of returned result:
   (let ((client tss--client)
         (cbuf (current-buffer)))
     (tss-client/set-buffer client cbuf)
-    (tss-client/sync-buffer-content client)
+    (tss-client/sync-sources client)
     (tss-client/get-errors client)))
 
 (defun tss--request-errors-bg ()

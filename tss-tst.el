@@ -4,18 +4,12 @@
   ((proc :type process
          :initform nil
          :documentation "Process of tss.")
+   (cmd :type symbol
+        :initarg nil
+        :documentation "The current command.")
    (incomplete-response :type string
                         :initform ""
-                        :documentation "Incomplete/intermediate TSS response, raw JSON string.")
-   ;; WARNING: TSS response is NOT JSON actually, it's more like JavaScript data
-   ;; get inspected. For now, there are string, array and object. So here we
-   ;; need to set the start&end char to know what responses we are receiving.
-   (response-start-tag :type string
-                       :initform ""
-                       :documentation "Indicate the start of the response.")
-   (response-end-tag :type string
-                     :initform ""
-                     :documentation "Indicate the end of the response."))
+                        :documentation "Incomplete/intermediate TSS response, raw JSON string."))
   :allow-nil-initform t
   :documentation
   "TS service class for \"clausreinke/typescript-tools\".")
@@ -46,8 +40,9 @@
         (process-connection-type nil)
         (waiti 0))
     ;; prepare process
-    (with-slots (client status proc response incomplete-response
-                 response-start-tag response-end-tag) this
+    (with-slots (client status proc
+                 incomplete-response
+                 response) this
       (setq client-name (oref client name)
             procnm (format "tss-%s" client-name)
             cmdstr (tss-tst/get-start-cmdstr this))
@@ -59,13 +54,12 @@
         ;; `tss-tst/receive-response-filter'.
         (process-put proc 'comm this)
         (setq response nil
-              incomplete-response ""
-              response-start-tag ""
-              response-end-tag "")
+              incomplete-response "")
         (set-process-query-on-exit-flag proc nil)
         (set-process-filter proc #'tss-tst/receive-response-filter)
         (set-process-sentinel proc #'tss-tst/proc-sentinel)
 
+        (tss-tst/complete-job-setup this)
         (tss-tst/accept-response this)
 
         (when (eq response 'succeed)
@@ -74,7 +68,7 @@
         proc))))
 
 ;;;#NO-TEST
-(defmethod tss-tst/accept-response ((this tss-tst/class) &optional timeout)
+(defmethod tss-tst/accept-response ((this tss-tst/class) job &optional timeout)
   "Accept response from ts-tools.
 
 TIMEOUT is the seconds to wait before return, default to 10 sec.
@@ -84,16 +78,23 @@ The algorithm is busy polling. To ensure the completeness of
 response, TIMEOUT is usually quite large, so it is sliced into
 multiple short intervals such that at each interval we can check
 whether a complete response has been received to return
-immediately."
-  ;; 0.25 is the trial-and-error magic
-  (let* ((slice 0.25)
-         (int-count (floor (/ (or timeout 10) slice))))
-    (with-slots (proc response) this
-      (while (and (> int-count 0)
-                  (null response))
+immediately.
+
+*NOTE:* This method should ONLY be used by synchronous APIs, as
+it waits for the response and the `job-queue' become empty."
+  (with-slots (proc response client) this
+    ;; only enqueue a job before an accept for sync methods. async method should
+    ;; enqueue a job after a command has been sent.
+    (tss-client/job-enqueue client job)
+    (while (oref client job-queue)      ;also waits for the queue to be empty
+      ;; 0.25 is the trial-and-error magic
+      (let* ((slice 0.25)
+             (int-count (floor (/ (or timeout 10) slice))))
+        (while (and (> int-count 0)
+                    (null response))
           (accept-process-output proc 0.2 nil t)
-          (decf int-count))
-      response)))
+          (decf int-count))))
+    response))
 
 ;;;#NO-TEST
 (defun tss-tst/proc-sentinel (proc event)
@@ -137,39 +138,47 @@ idle and it's possible to only receive partial result.
 
 TSS for now has informal/various output format. TSServer on the
 other unify outputs in standard JSON format."
-  (with-slots (response
-               incomplete-response
-               response-start-tag
-               response-end-tag) this
-    (loop with endre = (rx-to-string `(and bol "\"" (or "loaded" "updated" "added")
-                                           (+ space))) ;Note: quoted string within.
-          for line in (split-string (or rawres "") "[\r\n]+")
-          if (s-equals? line "null")
-          return (progn (message "TSS: Got null response")
-                        (setq response 'null))
-          ;; normal JSON style response
-          if (and (s-present? line)
-                  (or
-                   ;; in the middle of receiving response
-                   (s-present? incomplete-response)
-                   ;; start to get response
-                   (and (s-present? response-start-tag)
-                        (s-prefix? response-start-tag line))))
-          return (progn (tss--debug "Got json response : %s" line)
-                        (setq incomplete-response (concat incomplete-response line))
-                        (when (tss-tst/response-balanced? incomplete-response
-                                                          response-start-tag
-                                                          response-end-tag)
-                          (tss--trace "Finished getting json response")
-                          (setq response (json-read-from-string incomplete-response)
-                                incomplete-response "")))
-          ;; special output: a line of string with special format
-          if (string-match endre line)
-          return (progn (tss--debug "Got other response : %s" line)
-                        (setq response 'succeed))
-          ;; error for server
-          if (string-match "\\`\"TSS +\\(.+\\)\"\\'" line)
-          do (tss-tst/handle-err-response this line rawres))))
+  (with-slots (incomplete-response
+               response
+               client) this
+    (with-slots (cmd-cache job-queue) client
+      (let* ((job (car job-queue))
+             (cmd (oref job cmd))
+             (extras (oref job extras))
+             (btag (cdr (assoc 'btag extras)))
+             (etag (cdr (assoc 'etag extras))))
+        (loop with endre = (rx-to-string `(and bol "\"" (or "loaded" "updated" "added")
+                                               (+ space))) ;Note: quoted string within.
+              for line in (split-string (or rawres "") "[\r\n]+")
+              if (s-equals? line "null")
+              return (progn (message "TSS: Got null response")
+                            (setq response 'null))
+              ;; normal JSON style response
+              if (and (s-present? line)
+                      (or
+                       ;; in the middle of receiving response
+                       (s-present? incomplete-response)
+                       ;; start to get response
+                       (and (s-present? btag)
+                            (s-prefix? btag line))))
+              return (progn (tss--debug "Got json response : %s" line)
+                            (setq incomplete-response (concat incomplete-response line))
+                            (when (tss-tst/response-balanced? incomplete-response
+                                                              btag etag)
+                              (tss--trace "Finished getting json response")
+                              (setq response (json-read-from-string incomplete-response)
+                                    incomplete-response "")))
+              ;; special output: a line of string with special format
+              if (string-match endre line)
+              return (progn (tss--debug "Got other response : %s" line)
+                            (setq response 'succeed))
+              ;; error for server
+              if (string-match "\\`\"TSS +\\(.+\\)\"\\'" line)
+              do (tss-tst/handle-err-response this line rawres))
+        ;; pop `job-queue' and cache command result
+        (unless (null response)
+          (puthash cmd response cmd-cache)
+          (tss-client/job-dequeue client))))))
 
 ;;; TODO know better about possible error conditions
 ;;;#+NO-TEST
@@ -202,20 +211,53 @@ other unify outputs in standard JSON format."
 https://github.com/clausreinke/typescript-tools for the complete
 list and docs.")
 
+(defconst tss-tst/cmd-map-alist '((:doc . "quickInfo")
+                                  (:completions . "completions-brief")
+                                  (:errors . "showErrors")
+                                  (:update . "update")
+                                  ;; pseudo command
+                                  (:connect . "*connect*"))
+  "An alist that map high-level `tss-client/class' commands to
+low level `tss-tst'.")
 
 ;;;#NO-TEST
-(defmethod tss-comm/command-inspect ((this tss-tst/class) comm-cmds)
-  "Interactive command to send arbitrary command to
-typescript-tools.
+(defmethod tss-tst/complete-job-setup ((this tss-tst/class))
+  "Add extras to job in `job-queue'."
+  (with-slots (job-queue) (oref this client)
+    (let* ((job (-last-item job-queue))
+           (cmd (oref job cmd))
+           (tst-cmd (cdr (assoc cmd tss-tst/cmd-map-alist)))
+           response-start-tag
+           response-end-tag)
+      ;; WARNING: TSS response is NOT JSON actually, it's more like JavaScript
+      ;; data get inspected. For now, there are string, array and object. So
+      ;; here we need to set the start&end char to know when responses are
+      ;; completely received.
+      (pcase tst-cmd
+        ((or "quickInfo" "definition" "completions" "completions-brief")
+         (setq response-start-tag "{"
+               response-end-tag "}"))
+        ((or "references" "navigationBarItems" "navigateToItems" "files" "showErrors")
+         (setq response-start-tag "["
+               response-end-tag "]"))
+        (_
+         (setq response-start-tag ""
+               response-end-tag "")))
+      (oset job extras `(`(btag . ,response-start-tag)
+                         `(etag . ,response-end-tag))))))
+
+;;;#NO-TEST
+(defmethod tss-comm/command-inspect ((this tss-tst/class) cmd)
+  "Debugger method to send arbitrary command to typescript-tools.
 
 COMM-CMDS is a list, whose car should be one of
 `tss-tst/supported-cmds'."
-  (with-slots (response-start-tag
-               response-end-tag
-               response
-               client) this
-    (let* ((cbuf (oref client buffer))
-           (cmd (car comm-cmds))
+  (tss-tst/complete-job-setup this)
+  (with-slots (response client) this
+    (let* ((job (make-instance tss-client-job/class
+                               :cmd cmd))
+           (cbuf (oref client buffer))
+           (cmd (cdr (assoc cmd tss-tst/cmd-map-alist)))
            cmdstr
            (posarg (tss-tst/get-posarg cbuf))
            (file (buffer-file-name cbuf)))
@@ -233,30 +275,18 @@ COMM-CMDS is a list, whose car should be one of
          (message "reload currently doesn't respond any meaningful response back."))
         (_
          (error "%s NOT supported yet ;P" cmd)))
-      ;; different commands have different delimiters
-      ;; TODO feels cumbersome. An adaptive receiver?
-      (pcase cmd
-        ((or "quickInfo" "definition" "completions" "completions-brief")
-         (setq response-start-tag "{"
-               response-end-tag "}"))
-        ((or "references" "navigationBarItems" "navigateToItems" "files" "showErrors")
-         (setq response-start-tag "["
-               response-end-tag "]"))
-        (_
-         (setq response-start-tag ""
-               response-end-tag "")))
 
-      (tss-tst/send-accept this cmdstr)
+      (tss-tst/send-accept this cmdstr job)
       response)))
 
 ;;;#NO-TEST
-(defmethod tss-tst/send-accept ((this tss-tst/class) msg)
+(defmethod tss-tst/send-accept ((this tss-tst/class) msg job)
   "Helper method. Issuing most commands require clearing response and this 'send-accept' steps.
 Return response.
 
 NOTE: don't use this method on command that don't return output."
   (tss-tst/send-msg this msg)
-  (tss-tst/accept-response this))
+  (tss-tst/accept-response this job))
 
 ;;;#NO-TEST
 (defmethod tss-tst/send-msg ((this tss-tst/class) msg)
@@ -270,21 +300,6 @@ and etc."
 
     ;; TODO error handling
     (process-send-string proc (concat msg "\n"))))
-
-;;;#NO-TEST
-(defun tss-tst/cmd-inspect-display (cmd)
-  "ELisp interactive command wrapper around
-`tss-comm/command-inspect', using `tss-client' local variable."
-  (interactive (list
-                (progn
-                  ;; TODO we need to check the status of `tss-client'
-                  (unless tss-client
-                    (error "TSS: No active tss-client found."))
-                  (completing-read "TS Command: "
-                                   tss-tst/supported-cmds
-                                   nil t))))
-  (pp-display-expression (tss-client/comm-inspect tss--client (list cmd))
-                         "*TST CMD Inspect*"))
 
 ;;;: API implementations
 ;;;#NO-TEST
@@ -300,6 +315,8 @@ and etc."
 ;;;#NO-TEST
 (defmethod tss-comm/update-source ((this tss-tst/class)
                                    source linecount path)
+  (tss-comm/complete-job-setup this)
+  
   ;; Work around a bug about ending blank line. In Emacs, if END is at the
   ;; beginning of a line, `count-lines' won't count the line END is at. However
   ;; ts-tools counts this blank line. A blank string sent would result an error
@@ -308,13 +325,11 @@ and etc."
   (when (s-matches-p "[\n\C-m]\\'" source)
     (incf linecount))
 
-  (let ((cmdstr (format "update %d %s" linecount path)))
+  (let ((cmdstr (format "update %d %s" linecount path))
+        (job '((response-start-tag . "")
+               (response-end-tag . ""))))
     ;; update doesn't output, don't accept
     (tss-tst/send-msg this cmdstr)
-    (with-slots (response-start-tag
-                 response-end-tag) this
-      (setq response-start-tag ""
-            response-end-tag ""))
 
     (tss-tst/send-accept this source)
     (unless (eq (oref this response) 'succeed)

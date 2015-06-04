@@ -6,7 +6,7 @@
            ;; TODO there is a bug in `:allow-nil-initform' in inheritance...
            ;; :initform nil
            :documentation "The client use this communication service.")
-   ;; TODO we need spec for response format, refer to tsserver?
+   ;; TODO we need spec for response format, refer to `tsserver'?
    (response :type (or list vector symbol)
              :initform nil
              :documentation "Last response received in parsed format.")
@@ -89,3 +89,6 @@ See `tss-client/get-doc' for more details.")
 
 (defgeneric tss-comm/get-errors ((this tss-comm/class))
   "Retrieve errors.")
+
+(defgeneric tss-comm/send-errors-cmd ((this tss-comm/class))
+  "Send `errors' command without waiting.")

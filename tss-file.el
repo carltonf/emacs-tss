@@ -4,7 +4,12 @@
 
 (defclass tss-file/class (tss-client/class)
   ((type :type symbol
-         :initform 'file))
+         :initform 'file)
+   (tick :type integer
+         :initform 0
+         :documentation "Internal counter recording the last tick
+         of the buffer when it's last synced as in
+         `buffer-modified-tick'."))
   :documentation
   "TSS client for single TypeScript source file.")
 
@@ -17,9 +22,11 @@ before checks for other types of clients."
 ;;;: Object Methods
 ;;;#+NO-TEST
 (defmethod tss-client/initialize ((this tss-file/class))
-  (with-slots (name buffer initp) this
+  (with-slots (name buffer initp tick) this
     (unless (s-present? name)
       (setq name (f-filename (buffer-file-name buffer))))
+    (with-current-buffer buffer
+      (setq tick (buffer-modified-tick)))
     ;; after everything has been properly setup
     (setq initp t)))
 
@@ -41,6 +48,10 @@ before checks for other types of clients."
 ;;;#NO-TEST
 (defmethod tss-client/connect ((this tss-file/class) service)
   "A new instance of TSS service always starts for `tss-file/class'"
+  (tss-client/job-enqueue this
+                          (make-instance
+                           tss-client-job/class
+                           :cmd :connect))
   (with-slots (comm) this
     (setq comm service)
     (tss-comm/start comm)))
@@ -52,5 +63,22 @@ before checks for other types of clients."
     (tss-comm/destroy comm)
     (with-current-buffer buffer
       (setq tss--client nil))))
+
+;;;#NO-TEST
+(defmethod tss-client/source-changed? ((this tss-file/class))
+  (with-current-buffer (oref this buffer)
+    (not (eq (buffer-modified-tick)
+             (oref this tick)))))
+
+;;;#NO-TEST
+(defmethod tss-client/sync-sources ((this tss-file/class)
+                                    &optional source linecount)
+  "Update internal counter for buffer status before calling
+superclass' method to do the real work."
+  (when (tss-client/source-changed? this)
+    (with-slots (buffer tick) this
+      (with-current-buffer buffer
+        (setq tick (buffer-modified-tick)))))
+  (call-next-method))
 
 (provide 'tss-file)
